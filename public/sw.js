@@ -1,8 +1,7 @@
 const CACHE_NAME = "show-track-v1";
 
 const urlsToCache = [
-  "/show-track/",
-  "/show-track/index.html",
+  "./",
 ];
 
 self.addEventListener("install", (event) => {
