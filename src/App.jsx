@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   CloudDownload,
   CloudUpload,
-  FileUp,
   RefreshCw,
   Save,
   Search,
@@ -36,7 +35,6 @@ import {
   saveSyncConfig,
   uploadListToGist,
 } from "./utils/sync";
-import { parseSeriesGuideExport } from "./utils/seriesGuideImport";
 import { cleanLegacyDates } from "./utils/listCleanup";
 
 const INITIAL_HISTORY_LIMIT = 10;
@@ -163,7 +161,6 @@ export default function ShowTrackApp() {
   const [draftSyncConfig, setDraftSyncConfig] = useState(() => getSavedSyncConfig());
   const [syncing, setSyncing] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState("");
-  const [importing, setImporting] = useState(false);
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
   const [seriesLocalQuery, setSeriesLocalQuery] = useState("");
@@ -631,40 +628,6 @@ export default function ShowTrackApp() {
     }
   }
 
-  async function importSeriesGuideFiles(files) {
-    const selectedFiles = [...files];
-    if (selectedFiles.length === 0) return;
-
-    try {
-      setError("");
-      setImporting(true);
-
-      const importedItems = [];
-
-      for (const file of selectedFiles) {
-        const content = await file.text();
-        const parsed = parseSeriesGuideExport(content);
-        importedItems.push(...parsed.items);
-      }
-
-      if (importedItems.length === 0) {
-        setError("Não encontrei séries ou filmes válidos nesses arquivos.");
-        return;
-      }
-
-      const before = list.length;
-      const merged = cleanLegacyDates(mergeLists(list, importedItems));
-      setList(merged);
-      setSuccess(
-        `Importei ${merged.length - before} novos itens e atualizei ${importedItems.length} no total.`
-      );
-    } catch (err) {
-      setError(err.message || "Não consegui importar esses arquivos.");
-    } finally {
-      setImporting(false);
-    }
-  }
-
   async function addToList(item) {
     if (!token) {
       setError("Falta o token do TMDB.");
@@ -1110,33 +1073,6 @@ export default function ShowTrackApp() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
-            <FileUp className="h-4 w-4" />
-            Importar do SeriesGuide
-          </div>
-
-          <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10 md:w-auto">
-            <FileUp className="h-4 w-4" />
-            {importing ? "Importando..." : "Escolher arquivos JSON"}
-            <input
-              type="file"
-              accept="application/json,.json"
-              multiple
-              disabled={importing}
-              onChange={(e) => {
-                importSeriesGuideFiles(e.target.files || []);
-                e.target.value = "";
-              }}
-              className="hidden"
-            />
-          </label>
-
-          <div className="mt-3 text-xs leading-relaxed text-zinc-500">
-            Pode selecionar juntos os arquivos de séries e filmes exportados pelo SeriesGuide. O app
-            mescla com a lista atual usando o TMDB ID.
-          </div>
-        </div>
       </div>
     );
   }
