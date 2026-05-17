@@ -23,7 +23,9 @@ export function useTmdbSearch({ token, query, scope = "all", enabled = false }) 
     const trimmed = (query || "").trim();
 
     if (!token) {
-      clearResults();
+      setResults([]);
+      setSearching(false);
+      setSearchError("Falta o token do TMDB. Salva ele em Mais > Configurações para buscar títulos.");
       return;
     }
 
