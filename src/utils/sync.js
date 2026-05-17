@@ -60,7 +60,7 @@ async function githubFetch(path, token, options = {}) {
   return res.json();
 }
 
-async function fetchGistFileContent(file, token) {
+async function fetchGistFileContent(file) {
   if (file.content && !file.truncated) {
     return file.content;
   }
@@ -69,16 +69,13 @@ async function fetchGistFileContent(file, token) {
     return file.content || "";
   }
 
-  const res = await fetch(file.raw_url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github.raw",
-    },
-  });
+  // gist.githubusercontent.com blocks CORS preflight requests with Authorization
+  // headers. The raw URL is already enough for reading the file content here.
+  const res = await fetch(file.raw_url);
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`GitHub ${res.status}: ${text || "Erro ao baixar arquivo do Gist"}`);
+    throw new Error(`GitHub ${res.status}: ${text || "Erro ao baixar arquivo bruto do Gist"}`);
   }
 
   return res.text();
@@ -153,7 +150,7 @@ export async function downloadListFromGist({ token, gistId }) {
     throw new Error(`Não encontrei o arquivo ${SYNC_FILENAME} nesse Gist.`);
   }
 
-  const content = await fetchGistFileContent(file, token);
+  const content = await fetchGistFileContent(file);
   const payload = parseJson(content, null);
   const list = Array.isArray(payload) ? payload : payload?.list;
 
