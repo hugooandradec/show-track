@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Search, Settings2 } from "lucide-react";
+import { CloudDownload, CloudUpload, RefreshCw, Save, Search, Settings2 } from "lucide-react";
 
 import DetailDrawer from "./components/DetailDrawer";
 import BottomNav from "./components/BottomNav";
@@ -21,6 +21,13 @@ import {
 import { getPrimaryTitle } from "./utils/titles";
 import { formatEpisodeCode, formatAiringMeta, formatDate } from "./utils/format";
 import { useTmdbSearch } from "./hooks/useTmdbSearch";
+import {
+  downloadListFromGist,
+  getSavedSyncConfig,
+  mergeLists,
+  saveSyncConfig,
+  uploadListToGist,
+} from "./utils/sync";
 
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
@@ -142,6 +149,10 @@ function sortMovieItems(items, sortMode) {
 export default function ShowTrackApp() {
   const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
+  const [syncConfig, setSyncConfig] = useState(() => getSavedSyncConfig());
+  const [draftSyncConfig, setDraftSyncConfig] = useState(() => getSavedSyncConfig());
+  const [syncing, setSyncing] = useState("");
+  const [lastSyncAt, setLastSyncAt] = useState("");
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
   const [seriesLocalQuery, setSeriesLocalQuery] = useState("");
@@ -540,6 +551,75 @@ export default function ShowTrackApp() {
     setSuccess("Token salvo. Agora a busca já deve funcionar.");
   }
 
+  function persistSyncConfig() {
+    const saved = saveSyncConfig(draftSyncConfig);
+    setSyncConfig(saved);
+    setSuccess("Configuração de sincronização salva.");
+  }
+
+  async function uploadSyncList() {
+    try {
+      setError("");
+      setSyncing("upload");
+
+      const result = await uploadListToGist({
+        token: syncConfig.token,
+        gistId: syncConfig.gistId,
+        list,
+      });
+
+      const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
+      setSyncConfig(saved);
+      setDraftSyncConfig(saved);
+      setLastSyncAt(result.syncedAt);
+      setSuccess("Lista enviada para a nuvem.");
+    } catch (err) {
+      setError(err.message || "Não consegui enviar a lista.");
+    } finally {
+      setSyncing("");
+    }
+  }
+
+  async function downloadSyncList() {
+    try {
+      setError("");
+      setSyncing("download");
+
+      const result = await downloadListFromGist(syncConfig);
+      setList(result.list);
+      setLastSyncAt(result.syncedAt);
+      setSuccess("Lista baixada neste dispositivo.");
+    } catch (err) {
+      setError(err.message || "Não consegui baixar a lista.");
+    } finally {
+      setSyncing("");
+    }
+  }
+
+  async function mergeSyncList() {
+    try {
+      setError("");
+      setSyncing("merge");
+
+      const result = await downloadListFromGist(syncConfig);
+      const merged = mergeLists(list, result.list);
+      setList(merged);
+
+      const uploadResult = await uploadListToGist({
+        token: syncConfig.token,
+        gistId: syncConfig.gistId,
+        list: merged,
+      });
+
+      setLastSyncAt(uploadResult.syncedAt);
+      setSuccess("Listas mescladas e sincronizadas.");
+    } catch (err) {
+      setError(err.message || "Não consegui mesclar as listas.");
+    } finally {
+      setSyncing("");
+    }
+  }
+
   async function addToList(item) {
     if (!token) {
       setError("Falta o token do TMDB.");
@@ -911,6 +991,79 @@ export default function ShowTrackApp() {
             </button>
           </div>
         </div>
+
+        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+            <RefreshCw className="h-4 w-4" />
+            Sincronização
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_0.8fr_auto]">
+            <input
+              type="password"
+              value={draftSyncConfig.token}
+              onChange={(e) =>
+                setDraftSyncConfig((prev) => ({ ...prev, token: e.target.value }))
+              }
+              placeholder="Token do GitHub com acesso a Gists"
+              className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
+            />
+
+            <input
+              value={draftSyncConfig.gistId}
+              onChange={(e) =>
+                setDraftSyncConfig((prev) => ({ ...prev, gistId: e.target.value }))
+              }
+              placeholder="ID do Gist"
+              className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
+            />
+
+            <button
+              onClick={persistSyncConfig}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-white"
+            >
+              <Save className="h-4 w-4" />
+              Salvar
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <button
+              onClick={uploadSyncList}
+              disabled={!!syncing || !syncConfig.token}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CloudUpload className="h-4 w-4" />
+              {syncing === "upload" ? "Enviando..." : "Enviar lista"}
+            </button>
+
+            <button
+              onClick={downloadSyncList}
+              disabled={!!syncing || !syncConfig.token || !syncConfig.gistId}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CloudDownload className="h-4 w-4" />
+              {syncing === "download" ? "Baixando..." : "Baixar lista"}
+            </button>
+
+            <button
+              onClick={mergeSyncList}
+              disabled={!!syncing || !syncConfig.token || !syncConfig.gistId}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {syncing === "merge" ? "Mesclando..." : "Mesclar"}
+            </button>
+          </div>
+
+          <div className="mt-3 space-y-1 text-xs leading-relaxed text-zinc-500">
+            <div>
+              Primeiro envio cria um Gist privado e salva o ID aqui. No outro dispositivo, use o
+              mesmo token e ID para baixar ou mesclar.
+            </div>
+            {lastSyncAt ? <div>Última sincronização: {formatDate(lastSyncAt)}</div> : null}
+          </div>
+        </div>
       </div>
     );
   }
@@ -925,6 +1078,9 @@ export default function ShowTrackApp() {
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <div className="text-3xl font-bold text-white md:text-4xl">{pageTitle}</div>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-400">
+                  {pageDescription}
+                </p>
               </div>
 
               {renderHeaderActions()}
@@ -1021,6 +1177,11 @@ export default function ShowTrackApp() {
         />
 
         <WatchedDateModal
+          key={
+            watchModal
+              ? `${watchModal.title}-${watchModal.subtitle}-${watchModal.releaseDate || "no-date"}`
+              : "closed"
+          }
           open={!!watchModal}
           title={watchModal?.title || ""}
           subtitle={watchModal?.subtitle || ""}

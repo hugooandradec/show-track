@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { CalendarDays, Clapperboard, Clock3 } from "lucide-react";
 import { formatDate } from "../utils/format";
 
@@ -30,11 +30,6 @@ export default function WatchedDateModal({
   }, [releaseDate, today]);
 
   const [selectedDate, setSelectedDate] = useState(initialDate);
-
-  useEffect(() => {
-    if (!open) return;
-    setSelectedDate(initialDate);
-  }, [open, initialDate]);
 
   if (!open) return null;
 

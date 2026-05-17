@@ -1,0 +1,197 @@
+export const LS_SYNC_CONFIG = "show-track-sync-config";
+export const SYNC_FILENAME = "show-track-list.json";
+
+const GITHUB_API = "https://api.github.com";
+
+function parseJson(value, fallback) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function getSavedSyncConfig() {
+  const raw = localStorage.getItem(LS_SYNC_CONFIG);
+  if (!raw) return { token: "", gistId: "" };
+
+  const parsed = parseJson(raw, {});
+
+  return {
+    token: parsed.token || "",
+    gistId: parsed.gistId || "",
+  };
+}
+
+export function saveSyncConfig(config) {
+  const cleaned = {
+    token: (config.token || "").trim(),
+    gistId: (config.gistId || "").trim(),
+  };
+
+  localStorage.setItem(LS_SYNC_CONFIG, JSON.stringify(cleaned));
+  return cleaned;
+}
+
+function getHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+async function githubFetch(path, token, options = {}) {
+  const res = await fetch(`${GITHUB_API}${path}`, {
+    ...options,
+    headers: {
+      ...getHeaders(token),
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub ${res.status}: ${text || "Erro na sincronização"}`);
+  }
+
+  return res.json();
+}
+
+function buildSyncPayload(list) {
+  return {
+    app: "show-track",
+    version: 1,
+    syncedAt: new Date().toISOString(),
+    list,
+  };
+}
+
+export async function uploadListToGist({ token, gistId, list }) {
+  if (!token) {
+    throw new Error("Falta o token do GitHub para sincronizar.");
+  }
+
+  const content = JSON.stringify(buildSyncPayload(list), null, 2);
+
+  if (!gistId) {
+    const gist = await githubFetch("/gists", token, {
+      method: "POST",
+      body: JSON.stringify({
+        description: "Show Track sync",
+        public: false,
+        files: {
+          [SYNC_FILENAME]: {
+            content,
+          },
+        },
+      }),
+    });
+
+    return {
+      gistId: gist.id,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  await githubFetch(`/gists/${gistId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      files: {
+        [SYNC_FILENAME]: {
+          content,
+        },
+      },
+    }),
+  });
+
+  return {
+    gistId,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
+export async function downloadListFromGist({ token, gistId }) {
+  if (!token) {
+    throw new Error("Falta o token do GitHub para sincronizar.");
+  }
+
+  if (!gistId) {
+    throw new Error("Falta o ID do Gist para baixar a lista.");
+  }
+
+  const gist = await githubFetch(`/gists/${gistId}`, token);
+  const file = gist.files?.[SYNC_FILENAME];
+
+  if (!file?.content) {
+    throw new Error(`Não encontrei o arquivo ${SYNC_FILENAME} nesse Gist.`);
+  }
+
+  const payload = parseJson(file.content, null);
+  const list = Array.isArray(payload) ? payload : payload?.list;
+
+  if (!Array.isArray(list)) {
+    throw new Error("O arquivo de sincronização não tem uma lista válida.");
+  }
+
+  return {
+    list,
+    syncedAt: payload?.syncedAt || gist.updated_at || "",
+  };
+}
+
+function getItemTime(item) {
+  return item?.updatedAt || item?.createdAt || "";
+}
+
+function mergeEpisodeLists(primaryEpisodes = [], secondaryEpisodes = []) {
+  const merged = new Map();
+
+  for (const episode of secondaryEpisodes) {
+    merged.set(episode.id, episode);
+  }
+
+  for (const episode of primaryEpisodes) {
+    merged.set(episode.id, episode);
+  }
+
+  return [...merged.values()].sort((a, b) => {
+    if (a.season_number !== b.season_number) return a.season_number - b.season_number;
+    return a.episode_number - b.episode_number;
+  });
+}
+
+function mergeItems(localItem, remoteItem) {
+  if (!localItem) return remoteItem;
+  if (!remoteItem) return localItem;
+
+  const localTime = getItemTime(localItem);
+  const remoteTime = getItemTime(remoteItem);
+  const primary = remoteTime > localTime ? remoteItem : localItem;
+  const secondary = primary === remoteItem ? localItem : remoteItem;
+
+  if (primary.type !== "tv") return primary;
+
+  return {
+    ...secondary,
+    ...primary,
+    episodes: mergeEpisodeLists(primary.episodes || [], secondary.episodes || []),
+  };
+}
+
+export function mergeLists(localList, remoteList) {
+  const ids = new Set([
+    ...(localList || []).map((item) => item.uid),
+    ...(remoteList || []).map((item) => item.uid),
+  ]);
+
+  const localById = new Map((localList || []).map((item) => [item.uid, item]));
+  const remoteById = new Map((remoteList || []).map((item) => [item.uid, item]));
+
+  return [...ids]
+    .map((uid) => mergeItems(localById.get(uid), remoteById.get(uid)))
+    .filter(Boolean)
+    .sort((a, b) => (getItemTime(b) || "").localeCompare(getItemTime(a) || ""));
+}

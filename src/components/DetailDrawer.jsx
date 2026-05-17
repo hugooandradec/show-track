@@ -140,7 +140,10 @@ export default function DetailDrawer({
     };
   }, [open, item]);
 
-  const tvSource = item?.type === "tv" ? { ...item, ...(tvDetails || {}) } : item;
+  const tvSource = useMemo(
+    () => (item?.type === "tv" ? { ...item, ...(tvDetails || {}) } : item),
+    [item, tvDetails]
+  );
 
   const seasons = useMemo(() => {
     if (!tvSource || tvSource.type !== "tv") return [];
@@ -317,7 +320,6 @@ export default function DetailDrawer({
               {seasons.map((season) => {
                 const seen = season.episodes.filter((ep) => ep.watched).length;
                 const allSeen = seen === season.episodes.length && season.episodes.length > 0;
-                const unreleasedEpisodes = season.episodes.filter((ep) => ep.air_date && ep.air_date > today);
                 const canMarkSeason = season.episodes.some((ep) => !ep.watched && (!ep.air_date || ep.air_date <= today));
                 const isOpen = openSeasons[season.seasonNumber];
 

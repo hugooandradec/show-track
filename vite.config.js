@@ -3,6 +3,6 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  base: "/show-track/", // 🔥 ISSO AQUI É O SEGREDO
+  base: "/show-track/",
   plugins: [react(), tailwindcss()],
 })
