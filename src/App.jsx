@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   CloudDownload,
   CloudUpload,
@@ -40,6 +40,10 @@ import { cleanLegacyDates } from "./utils/listCleanup";
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
 const LS_UI_PREFERENCES = "show-track-ui-preferences";
+
+function getListSnapshot(list) {
+  return JSON.stringify(cleanLegacyDates(list));
+}
 
 function getSavedUiPreferences() {
   try {
@@ -161,6 +165,7 @@ export default function ShowTrackApp() {
   const [draftSyncConfig, setDraftSyncConfig] = useState(() => getSavedSyncConfig());
   const [syncing, setSyncing] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState("");
+  const [autoSyncStatus, setAutoSyncStatus] = useState("");
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
   const [seriesLocalQuery, setSeriesLocalQuery] = useState("");
@@ -209,6 +214,10 @@ export default function ShowTrackApp() {
     }
   });
 
+  const autoSyncReadyRef = useRef(false);
+  const lastSyncedSnapshotRef = useRef("");
+  const listRef = useRef(list);
+
   const currentSeriesSortMode =
     seriesStatusFilter === "watched" ? seriesWatchedSortMode : seriesToWatchSortMode;
 
@@ -232,8 +241,106 @@ export default function ShowTrackApp() {
   });
 
   useEffect(() => {
+    listRef.current = list;
     localStorage.setItem(LS_LIST, JSON.stringify(cleanLegacyDates(list)));
   }, [list]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    autoSyncReadyRef.current = false;
+    lastSyncedSnapshotRef.current = "";
+
+    if (!syncConfig.autoSync || !syncConfig.token) {
+      setAutoSyncStatus("");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!syncConfig.gistId) {
+      autoSyncReadyRef.current = true;
+      lastSyncedSnapshotRef.current = getListSnapshot(listRef.current);
+      setAutoSyncStatus("Automática ligada. O primeiro envio cria o Gist.");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function syncRemoteOnStart() {
+      try {
+        setSyncing("auto-download");
+        setAutoSyncStatus("Sincronizando...");
+
+        const result = await downloadListFromGist(syncConfig);
+        const merged = cleanLegacyDates(mergeLists(listRef.current, result.list));
+        const mergedSnapshot = getListSnapshot(merged);
+
+        if (cancelled) return;
+
+        if (mergedSnapshot !== getListSnapshot(listRef.current)) {
+          setList(merged);
+        }
+
+        lastSyncedSnapshotRef.current = mergedSnapshot;
+        autoSyncReadyRef.current = true;
+        setLastSyncAt(result.syncedAt);
+        setAutoSyncStatus("Sincronização automática ligada.");
+      } catch (err) {
+        if (!cancelled) {
+          autoSyncReadyRef.current = true;
+          lastSyncedSnapshotRef.current = getListSnapshot(listRef.current);
+          setAutoSyncStatus("");
+          setError(err.message || "Não consegui sincronizar automaticamente.");
+        }
+      } finally {
+        if (!cancelled) setSyncing("");
+      }
+    }
+
+    syncRemoteOnStart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncConfig]);
+
+  useEffect(() => {
+    if (!syncConfig.autoSync || !syncConfig.token || !autoSyncReadyRef.current) return undefined;
+
+    const snapshot = getListSnapshot(list);
+    if (snapshot === lastSyncedSnapshotRef.current) return undefined;
+
+    const timer = setTimeout(async () => {
+      try {
+        setSyncing("auto-upload");
+        setAutoSyncStatus("Enviando alterações...");
+
+        const result = await uploadListToGist({
+          token: syncConfig.token,
+          gistId: syncConfig.gistId,
+          list,
+        });
+
+        if (result.gistId !== syncConfig.gistId) {
+          const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
+          setSyncConfig(saved);
+          setDraftSyncConfig(saved);
+        }
+
+        lastSyncedSnapshotRef.current = snapshot;
+        setLastSyncAt(result.syncedAt);
+        setAutoSyncStatus("Alterações sincronizadas.");
+      } catch (err) {
+        setAutoSyncStatus("");
+        setError(err.message || "Não consegui enviar a sincronização automática.");
+      } finally {
+        setSyncing("");
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [list, syncConfig]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -562,6 +669,7 @@ export default function ShowTrackApp() {
   function persistSyncConfig() {
     const saved = saveSyncConfig(draftSyncConfig);
     setSyncConfig(saved);
+    setDraftSyncConfig(saved);
     setSuccess("Configuração de sincronização salva.");
   }
 
@@ -579,6 +687,8 @@ export default function ShowTrackApp() {
       const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
       setSyncConfig(saved);
       setDraftSyncConfig(saved);
+      lastSyncedSnapshotRef.current = getListSnapshot(list);
+      autoSyncReadyRef.current = true;
       setLastSyncAt(result.syncedAt);
       setSuccess("Lista enviada para a nuvem.");
     } catch (err) {
@@ -594,7 +704,10 @@ export default function ShowTrackApp() {
       setSyncing("download");
 
       const result = await downloadListFromGist(syncConfig);
-      setList(cleanLegacyDates(result.list));
+      const cleaned = cleanLegacyDates(result.list);
+      setList(cleaned);
+      lastSyncedSnapshotRef.current = getListSnapshot(cleaned);
+      autoSyncReadyRef.current = true;
       setLastSyncAt(result.syncedAt);
       setSuccess("Lista baixada neste dispositivo.");
     } catch (err) {
@@ -620,6 +733,8 @@ export default function ShowTrackApp() {
       });
 
       setLastSyncAt(uploadResult.syncedAt);
+      lastSyncedSnapshotRef.current = getListSnapshot(merged);
+      autoSyncReadyRef.current = true;
       setSuccess("Listas mescladas e sincronizadas.");
     } catch (err) {
       setError(err.message || "Não consegui mesclar as listas.");
@@ -1035,6 +1150,18 @@ export default function ShowTrackApp() {
             </button>
           </div>
 
+          <label className="mt-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">
+            <input
+              type="checkbox"
+              checked={draftSyncConfig.autoSync !== false}
+              onChange={(e) =>
+                setDraftSyncConfig((prev) => ({ ...prev, autoSync: e.target.checked }))
+              }
+              className="h-4 w-4 accent-fuchsia-500"
+            />
+            Sincronizar automaticamente ao abrir e depois de alterações
+          </label>
+
           <div className="mt-3 grid gap-2 md:grid-cols-3">
             <button
               onClick={uploadSyncList}
@@ -1069,6 +1196,7 @@ export default function ShowTrackApp() {
               Primeiro envio cria um Gist privado e salva o ID aqui. No outro dispositivo, use o
               mesmo token e ID para baixar ou mesclar.
             </div>
+            {autoSyncStatus ? <div>{autoSyncStatus}</div> : null}
             {lastSyncAt ? <div>Última sincronização: {formatDate(lastSyncAt)}</div> : null}
           </div>
         </div>

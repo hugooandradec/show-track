@@ -16,13 +16,14 @@ function parseJson(value, fallback) {
 
 export function getSavedSyncConfig() {
   const raw = localStorage.getItem(LS_SYNC_CONFIG);
-  if (!raw) return { token: "", gistId: "" };
+  if (!raw) return { token: "", gistId: "", autoSync: true };
 
   const parsed = parseJson(raw, {});
 
   return {
     token: parsed.token || "",
     gistId: parsed.gistId || "",
+    autoSync: parsed.autoSync !== false,
   };
 }
 
@@ -30,6 +31,7 @@ export function saveSyncConfig(config) {
   const cleaned = {
     token: (config.token || "").trim(),
     gistId: (config.gistId || "").trim(),
+    autoSync: config.autoSync !== false,
   };
 
   localStorage.setItem(LS_SYNC_CONFIG, JSON.stringify(cleaned));
