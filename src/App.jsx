@@ -14,7 +14,7 @@ import WatchedDateModal from "./components/WatchedDateModal";
 import SeriesSection from "./components/SeriesSection";
 import MoviesSection from "./components/MoviesSection";
 
-import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem } from "./utils/tmdb";
+import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
 import {
   getOldestUnwatchedDate,
   normalizeText,
@@ -54,6 +54,26 @@ function getRefreshSnapshot(item) {
     networks: item?.networks || [],
     air_time: item?.air_time || null,
     release_date: item?.release_date || null,
+    status: item?.status || "",
+    episodes: item?.episodes || [],
+  });
+}
+
+function getSeriesRefreshSnapshot(item) {
+  return JSON.stringify({
+    title: item?.title || "",
+    original_title: item?.original_title || "",
+    year: item?.year || "",
+    release_date: item?.release_date || null,
+    poster_path: item?.poster_path || null,
+    backdrop_path: item?.backdrop_path || null,
+    overview: item?.overview || "",
+    genres: item?.genres || [],
+    network: item?.network || "",
+    networks: item?.networks || [],
+    air_time: item?.air_time || null,
+    number_of_seasons: item?.number_of_seasons || 0,
+    number_of_episodes: item?.number_of_episodes || 0,
     status: item?.status || "",
     episodes: item?.episodes || [],
   });
@@ -231,6 +251,7 @@ export default function ShowTrackApp() {
   const autoSyncReadyRef = useRef(false);
   const lastSyncedSnapshotRef = useRef("");
   const listRef = useRef(list);
+  const refreshedSeriesRef = useRef(new Set());
 
   const currentSeriesSortMode =
     seriesStatusFilter === "watched" ? seriesWatchedSortMode : seriesToWatchSortMode;
@@ -258,6 +279,52 @@ export default function ShowTrackApp() {
     listRef.current = list;
     localStorage.setItem(LS_LIST, JSON.stringify(cleanLegacyDates(list)));
   }, [list]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const candidates = list
+      .filter((item) => item.type === "tv" && isSeriesFullyWatched(item))
+      .filter((item) => !refreshedSeriesRef.current.has(item.uid));
+
+    if (candidates.length === 0) return undefined;
+
+    let cancelled = false;
+
+    async function refreshFinishedSeries() {
+      setAutoSyncStatus(`Atualizando ${candidates.length} séries concluídas...`);
+
+      for (const item of candidates) {
+        if (cancelled) return;
+        refreshedSeriesRef.current.add(item.uid);
+
+        try {
+          const refreshed = await refreshTvItem(item, token);
+          if (cancelled) return;
+
+          if (getSeriesRefreshSnapshot(item) === getSeriesRefreshSnapshot(refreshed)) {
+            continue;
+          }
+
+          setList((prev) =>
+            prev.map((current) => (current.uid === item.uid ? cleanLegacyDates([refreshed])[0] : current))
+          );
+        } catch {
+          // Keep the refresh quiet; manual details still show a title-specific error if needed.
+        }
+      }
+
+      if (!cancelled) {
+        setAutoSyncStatus("Séries concluídas atualizadas.");
+      }
+    }
+
+    refreshFinishedSeries();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [list, token]);
 
   useEffect(() => {
     let cancelled = false;
