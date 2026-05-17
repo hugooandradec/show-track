@@ -70,3 +70,26 @@ export function formatAiringMeta({ network, date, time }) {
 
   return parts.join(" · ");
 }
+
+export function formatDateTime(date) {
+  if (!date) return "Sem data";
+
+  try {
+    const parsed = new Date(date);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "Data inválida";
+    }
+
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(parsed);
+  } catch {
+    return "Data inválida";
+  }
+}

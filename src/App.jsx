@@ -26,7 +26,7 @@ import {
   isMovieFullyWatched,
 } from "./utils/helpers";
 import { getPrimaryTitle } from "./utils/titles";
-import { formatEpisodeCode, formatAiringMeta, formatDate } from "./utils/format";
+import { formatEpisodeCode, formatAiringMeta, formatDate, formatDateTime } from "./utils/format";
 import { useTmdbSearch } from "./hooks/useTmdbSearch";
 import {
   downloadListFromGist,
@@ -1211,7 +1211,7 @@ export default function ShowTrackApp() {
               mesmo token e ID para baixar ou mesclar.
             </div>
             {autoSyncStatus ? <div>{autoSyncStatus}</div> : null}
-            {lastSyncAt ? <div>Última sincronização: {formatDate(lastSyncAt)}</div> : null}
+            {lastSyncAt ? <div>Última sincronização: {formatDateTime(lastSyncAt)}</div> : null}
           </div>
         </div>
 
