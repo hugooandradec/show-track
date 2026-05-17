@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CloudDownload,
   CloudUpload,
@@ -43,6 +43,20 @@ const LS_UI_PREFERENCES = "show-track-ui-preferences";
 
 function getListSnapshot(list) {
   return JSON.stringify(cleanLegacyDates(list));
+}
+
+function getRefreshSnapshot(item) {
+  return JSON.stringify({
+    poster_path: item?.poster_path || null,
+    backdrop_path: item?.backdrop_path || null,
+    overview: item?.overview || "",
+    network: item?.network || "",
+    networks: item?.networks || [],
+    air_time: item?.air_time || null,
+    release_date: item?.release_date || null,
+    status: item?.status || "",
+    episodes: item?.episodes || [],
+  });
 }
 
 function getSavedUiPreferences() {
@@ -1205,6 +1219,24 @@ export default function ShowTrackApp() {
     );
   }
 
+  const refreshItemDetails = useCallback((uid, details) => {
+    setList((prev) =>
+      prev.map((item) => {
+        if (item.uid !== uid || item.type !== "tv") return item;
+
+        if (getRefreshSnapshot(item) === getRefreshSnapshot({ ...item, ...details })) {
+          return item;
+        }
+
+        return {
+          ...item,
+          ...details,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+  }, []);
+
   const displayedError = searchError || error;
 
   return (
@@ -1311,6 +1343,7 @@ export default function ShowTrackApp() {
           onToggleSeason={toggleSeason}
           onToggleMovie={toggleMovieWatched}
           onRemoveItem={removeItem}
+          onRefreshItem={refreshItemDetails}
         />
 
         <WatchedDateModal

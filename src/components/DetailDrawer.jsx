@@ -30,6 +30,7 @@ export default function DetailDrawer({
   onToggleSeason,
   onToggleMovie,
   onRemoveItem,
+  onRefreshItem,
 }) {
   const [openSeasons, setOpenSeasons] = useState({});
   const [tvDetails, setTvDetails] = useState(null);
@@ -110,7 +111,7 @@ export default function DetailDrawer({
         );
 
         if (!cancelled) {
-          setTvDetails({
+          const refreshedDetails = {
             poster_path: details.poster_path || item.poster_path,
             backdrop_path: details.backdrop_path || item.backdrop_path,
             overview: details.overview || item.overview,
@@ -120,7 +121,10 @@ export default function DetailDrawer({
             release_date: details.first_air_date || item.release_date || null,
             status: details.status || item.status || "",
             episodes: mergedEpisodes,
-          });
+          };
+
+          setTvDetails(refreshedDetails);
+          onRefreshItem?.(item.uid, refreshedDetails);
         }
       } catch {
         if (!cancelled) {
@@ -138,7 +142,7 @@ export default function DetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, item]);
+  }, [open, item, onRefreshItem]);
 
   const tvSource = useMemo(
     () => (item?.type === "tv" ? { ...item, ...(tvDetails || {}) } : item),
