@@ -7,7 +7,7 @@ function parseJson(value) {
 }
 
 function dateFromMs(value) {
-  if (!value || Number.isNaN(Number(value))) return null;
+  if (!value || Number.isNaN(Number(value)) || Number(value) <= 0) return null;
 
   const date = new Date(Number(value));
   if (Number.isNaN(date.getTime())) return null;

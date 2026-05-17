@@ -37,6 +37,7 @@ import {
   uploadListToGist,
 } from "./utils/sync";
 import { parseSeriesGuideExport } from "./utils/seriesGuideImport";
+import { cleanLegacyDates } from "./utils/listCleanup";
 
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
@@ -205,7 +206,7 @@ export default function ShowTrackApp() {
   const [list, setList] = useState(() => {
     try {
       const raw = localStorage.getItem(LS_LIST);
-      return raw ? JSON.parse(raw) : [];
+      return raw ? cleanLegacyDates(JSON.parse(raw)) : [];
     } catch {
       return [];
     }
@@ -234,7 +235,7 @@ export default function ShowTrackApp() {
   });
 
   useEffect(() => {
-    localStorage.setItem(LS_LIST, JSON.stringify(list));
+    localStorage.setItem(LS_LIST, JSON.stringify(cleanLegacyDates(list)));
   }, [list]);
 
   useEffect(() => {
@@ -596,7 +597,7 @@ export default function ShowTrackApp() {
       setSyncing("download");
 
       const result = await downloadListFromGist(syncConfig);
-      setList(result.list);
+      setList(cleanLegacyDates(result.list));
       setLastSyncAt(result.syncedAt);
       setSuccess("Lista baixada neste dispositivo.");
     } catch (err) {
@@ -612,7 +613,7 @@ export default function ShowTrackApp() {
       setSyncing("merge");
 
       const result = await downloadListFromGist(syncConfig);
-      const merged = mergeLists(list, result.list);
+      const merged = cleanLegacyDates(mergeLists(list, result.list));
       setList(merged);
 
       const uploadResult = await uploadListToGist({
@@ -652,7 +653,7 @@ export default function ShowTrackApp() {
       }
 
       const before = list.length;
-      const merged = mergeLists(list, importedItems);
+      const merged = cleanLegacyDates(mergeLists(list, importedItems));
       setList(merged);
       setSuccess(
         `Importei ${merged.length - before} novos itens e atualizei ${importedItems.length} no total.`

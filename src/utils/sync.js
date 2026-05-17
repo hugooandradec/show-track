@@ -1,6 +1,8 @@
 export const LS_SYNC_CONFIG = "show-track-sync-config";
 export const SYNC_FILENAME = "show-track-list.json";
 
+import { cleanLegacyDates } from "./listCleanup";
+
 const GITHUB_API = "https://api.github.com";
 
 function parseJson(value, fallback) {
@@ -86,7 +88,7 @@ function buildSyncPayload(list) {
     app: "show-track",
     version: 1,
     syncedAt: new Date().toISOString(),
-    list,
+    list: cleanLegacyDates(list),
   };
 }
 
@@ -159,7 +161,7 @@ export async function downloadListFromGist({ token, gistId }) {
   }
 
   return {
-    list,
+    list: cleanLegacyDates(list),
     syncedAt: payload?.syncedAt || gist.updated_at || "",
   };
 }
