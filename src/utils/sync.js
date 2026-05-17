@@ -60,6 +60,30 @@ async function githubFetch(path, token, options = {}) {
   return res.json();
 }
 
+async function fetchGistFileContent(file, token) {
+  if (file.content && !file.truncated) {
+    return file.content;
+  }
+
+  if (!file.raw_url) {
+    return file.content || "";
+  }
+
+  const res = await fetch(file.raw_url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.raw",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GitHub ${res.status}: ${text || "Erro ao baixar arquivo do Gist"}`);
+  }
+
+  return res.text();
+}
+
 function buildSyncPayload(list) {
   return {
     app: "show-track",
@@ -125,11 +149,12 @@ export async function downloadListFromGist({ token, gistId }) {
   const gist = await githubFetch(`/gists/${gistId}`, token);
   const file = gist.files?.[SYNC_FILENAME];
 
-  if (!file?.content) {
+  if (!file) {
     throw new Error(`Não encontrei o arquivo ${SYNC_FILENAME} nesse Gist.`);
   }
 
-  const payload = parseJson(file.content, null);
+  const content = await fetchGistFileContent(file, token);
+  const payload = parseJson(content, null);
   const list = Array.isArray(payload) ? payload : payload?.list;
 
   if (!Array.isArray(list)) {
