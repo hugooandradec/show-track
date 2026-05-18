@@ -247,9 +247,8 @@ export default function ShowTrackApp() {
   const [lastSyncAt, setLastSyncAt] = useState("");
   const [autoSyncStatus, setAutoSyncStatus] = useState("");
   const [customLists, setCustomLists] = useState(() => getSavedCustomLists());
-  const [selectedCustomListId, setSelectedCustomListId] = useState(
-    () => getSavedCustomLists()[0]?.id || ""
-  );
+  const [selectedCustomListId, setSelectedCustomListId] = useState("");
+  const [editingCustomListItems, setEditingCustomListItems] = useState(false);
   const [newCustomListName, setNewCustomListName] = useState("");
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
@@ -342,7 +341,8 @@ export default function ShowTrackApp() {
       return;
     }
 
-    setSelectedCustomListId(customLists[0]?.id || "");
+    setSelectedCustomListId("");
+    setEditingCustomListItems(false);
   }, [customLists, selectedCustomListId]);
 
   useEffect(() => {
@@ -1206,6 +1206,7 @@ export default function ShowTrackApp() {
 
     setCustomLists((prev) => [...prev, customList]);
     setSelectedCustomListId(customList.id);
+    setEditingCustomListItems(true);
     setNewCustomListName("");
   }
 
@@ -1287,7 +1288,10 @@ export default function ShowTrackApp() {
           <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/20 p-4 md:flex-row md:items-center md:justify-between">
             <div>
               <button
-                onClick={() => setSelectedCustomListId("")}
+                onClick={() => {
+                  setSelectedCustomListId("");
+                  setEditingCustomListItems(false);
+                }}
                 className="mb-2 text-sm text-zinc-400 transition hover:text-white"
               >
                 Voltar para listas
@@ -1321,39 +1325,19 @@ export default function ShowTrackApp() {
               </div>
 
               <button
+                onClick={() => setEditingCustomListItems((prev) => !prev)}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+              >
+                {editingCustomListItems ? "Ocultar títulos" : "Editar títulos"}
+              </button>
+
+              <button
                 onClick={() => removeCustomList(selectedCustomList.id)}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
               >
                 <Trash2 className="h-4 w-4" />
                 Remover
               </button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-            <div className="mb-3 text-sm font-medium text-white">Títulos da lista</div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {availableItems.map((item) => {
-                const checked = selectedUids.has(item.uid);
-
-                return (
-                  <label
-                    key={item.uid}
-                    className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
-                      className="h-4 w-4 accent-fuchsia-500"
-                    />
-                    <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
-                    <span className="text-xs text-zinc-500">
-                      {item.type === "movie" ? "Filme" : "Série"}
-                    </span>
-                  </label>
-                );
-              })}
             </div>
           </div>
 
@@ -1382,6 +1366,35 @@ export default function ShowTrackApp() {
               )
             )}
           </div>
+
+          {editingCustomListItems ? (
+            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+              <div className="mb-3 text-sm font-medium text-white">Títulos da lista</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {availableItems.map((item) => {
+                  const checked = selectedUids.has(item.uid);
+
+                  return (
+                    <label
+                      key={item.uid}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
+                        className="h-4 w-4 accent-fuchsia-500"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
+                      <span className="text-xs text-zinc-500">
+                        {item.type === "movie" ? "Filme" : "Série"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       );
     }
@@ -1418,7 +1431,10 @@ export default function ShowTrackApp() {
               {customLists.map((customList) => (
                 <button
                   key={customList.id}
-                  onClick={() => setSelectedCustomListId(customList.id)}
+                  onClick={() => {
+                    setSelectedCustomListId(customList.id);
+                    setEditingCustomListItems(false);
+                  }}
                   className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-left transition hover:bg-white/[0.06]"
                 >
                   <div className="text-lg font-semibold text-white">{customList.name}</div>
