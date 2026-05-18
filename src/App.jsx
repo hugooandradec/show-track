@@ -2,10 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   CloudDownload,
   CloudUpload,
+  ListPlus,
   RefreshCw,
   Save,
   Search,
   Settings2,
+  SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 
 import DetailDrawer from "./components/DetailDrawer";
@@ -13,6 +16,7 @@ import BottomNav from "./components/BottomNav";
 import WatchedDateModal from "./components/WatchedDateModal";
 import SeriesSection from "./components/SeriesSection";
 import MoviesSection from "./components/MoviesSection";
+import TimelineRow from "./components/TimelineRow";
 
 import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
 import {
@@ -31,6 +35,7 @@ import { useTmdbSearch } from "./hooks/useTmdbSearch";
 import {
   downloadListFromGist,
   getSavedSyncConfig,
+  mergeCustomLists,
   mergeLists,
   saveSyncConfig,
   uploadListToGist,
@@ -40,9 +45,13 @@ import { cleanLegacyDates } from "./utils/listCleanup";
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
 const LS_UI_PREFERENCES = "show-track-ui-preferences";
+const LS_CUSTOM_LISTS = "show-track-custom-lists";
 
-function getListSnapshot(list) {
-  return JSON.stringify(cleanLegacyDates(list));
+function getSyncSnapshot(list, customLists) {
+  return JSON.stringify({
+    list: cleanLegacyDates(list),
+    customLists,
+  });
 }
 
 function getRefreshSnapshot(item) {
@@ -98,6 +107,16 @@ function getSavedSortPreferences() {
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
+  }
+}
+
+function getSavedCustomLists() {
+  try {
+    const raw = localStorage.getItem(LS_CUSTOM_LISTS);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
@@ -192,6 +211,33 @@ function sortMovieItems(items, sortMode) {
   return sorted;
 }
 
+function getCustomEntryDate(entry) {
+  return entry.date || "9999-12-31";
+}
+
+function sortCustomEntries(entries, sortMode) {
+  const sorted = [...entries];
+
+  sorted.sort((a, b) => {
+    if (sortMode === "title") {
+      const titleCompare = a.title.localeCompare(b.title, "pt-BR", { sensitivity: "base" });
+      if (titleCompare !== 0) return titleCompare;
+      return (a.subtitle || "").localeCompare(b.subtitle || "", "pt-BR", { sensitivity: "base" });
+    }
+
+    const da = getCustomEntryDate(a);
+    const db = getCustomEntryDate(b);
+
+    if (da !== db) {
+      return sortMode === "newest" ? db.localeCompare(da) : da.localeCompare(db);
+    }
+
+    return a.title.localeCompare(b.title, "pt-BR", { sensitivity: "base" });
+  });
+
+  return sorted;
+}
+
 export default function ShowTrackApp() {
   const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
   const [draftToken, setDraftToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
@@ -200,6 +246,11 @@ export default function ShowTrackApp() {
   const [syncing, setSyncing] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState("");
   const [autoSyncStatus, setAutoSyncStatus] = useState("");
+  const [customLists, setCustomLists] = useState(() => getSavedCustomLists());
+  const [selectedCustomListId, setSelectedCustomListId] = useState(
+    () => getSavedCustomLists()[0]?.id || ""
+  );
+  const [newCustomListName, setNewCustomListName] = useState("");
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
   const [seriesLocalQuery, setSeriesLocalQuery] = useState("");
@@ -251,6 +302,7 @@ export default function ShowTrackApp() {
   const autoSyncReadyRef = useRef(false);
   const lastSyncedSnapshotRef = useRef("");
   const listRef = useRef(list);
+  const customListsRef = useRef(customLists);
   const refreshedSeriesRef = useRef(new Set());
 
   const currentSeriesSortMode =
@@ -279,6 +331,19 @@ export default function ShowTrackApp() {
     listRef.current = list;
     localStorage.setItem(LS_LIST, JSON.stringify(cleanLegacyDates(list)));
   }, [list]);
+
+  useEffect(() => {
+    customListsRef.current = customLists;
+    localStorage.setItem(LS_CUSTOM_LISTS, JSON.stringify(customLists));
+  }, [customLists]);
+
+  useEffect(() => {
+    if (selectedCustomListId && customLists.some((customList) => customList.id === selectedCustomListId)) {
+      return;
+    }
+
+    setSelectedCustomListId(customLists[0]?.id || "");
+  }, [customLists, selectedCustomListId]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -341,7 +406,7 @@ export default function ShowTrackApp() {
 
     if (!syncConfig.gistId) {
       autoSyncReadyRef.current = true;
-      lastSyncedSnapshotRef.current = getListSnapshot(listRef.current);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(listRef.current, customListsRef.current);
       setAutoSyncStatus("Automática ligada. O primeiro envio cria o Gist.");
       return () => {
         cancelled = true;
@@ -355,12 +420,14 @@ export default function ShowTrackApp() {
 
         const result = await downloadListFromGist(syncConfig);
         const merged = cleanLegacyDates(mergeLists(listRef.current, result.list));
-        const mergedSnapshot = getListSnapshot(merged);
+        const mergedCustomLists = mergeCustomLists(customListsRef.current, result.customLists);
+        const mergedSnapshot = getSyncSnapshot(merged, mergedCustomLists);
 
         if (cancelled) return;
 
-        if (mergedSnapshot !== getListSnapshot(listRef.current)) {
+        if (mergedSnapshot !== getSyncSnapshot(listRef.current, customListsRef.current)) {
           setList(merged);
+          setCustomLists(mergedCustomLists);
         }
 
         lastSyncedSnapshotRef.current = mergedSnapshot;
@@ -370,7 +437,7 @@ export default function ShowTrackApp() {
       } catch (err) {
         if (!cancelled) {
           autoSyncReadyRef.current = true;
-          lastSyncedSnapshotRef.current = getListSnapshot(listRef.current);
+          lastSyncedSnapshotRef.current = getSyncSnapshot(listRef.current, customListsRef.current);
           setAutoSyncStatus("");
           setError(err.message || "Não consegui sincronizar automaticamente.");
         }
@@ -389,7 +456,7 @@ export default function ShowTrackApp() {
   useEffect(() => {
     if (!syncConfig.autoSync || !syncConfig.token || !autoSyncReadyRef.current) return undefined;
 
-    const snapshot = getListSnapshot(list);
+    const snapshot = getSyncSnapshot(list, customLists);
     if (snapshot === lastSyncedSnapshotRef.current) return undefined;
 
     const timer = setTimeout(async () => {
@@ -401,6 +468,7 @@ export default function ShowTrackApp() {
           token: syncConfig.token,
           gistId: syncConfig.gistId,
           list,
+          customLists,
         });
 
         if (result.gistId !== syncConfig.gistId) {
@@ -421,7 +489,7 @@ export default function ShowTrackApp() {
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [list, syncConfig]);
+  }, [list, customLists, syncConfig]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -763,12 +831,13 @@ export default function ShowTrackApp() {
         token: syncConfig.token,
         gistId: syncConfig.gistId,
         list,
+        customLists,
       });
 
       const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
       setSyncConfig(saved);
       setDraftSyncConfig(saved);
-      lastSyncedSnapshotRef.current = getListSnapshot(list);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(list, customLists);
       autoSyncReadyRef.current = true;
       setLastSyncAt(result.syncedAt);
       setSuccess("Lista enviada para a nuvem.");
@@ -786,8 +855,10 @@ export default function ShowTrackApp() {
 
       const result = await downloadListFromGist(syncConfig);
       const cleaned = cleanLegacyDates(result.list);
+      const syncedCustomLists = mergeCustomLists(customLists, result.customLists);
       setList(cleaned);
-      lastSyncedSnapshotRef.current = getListSnapshot(cleaned);
+      setCustomLists(syncedCustomLists);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(cleaned, syncedCustomLists);
       autoSyncReadyRef.current = true;
       setLastSyncAt(result.syncedAt);
       setSuccess("Lista baixada neste dispositivo.");
@@ -805,16 +876,19 @@ export default function ShowTrackApp() {
 
       const result = await downloadListFromGist(syncConfig);
       const merged = cleanLegacyDates(mergeLists(list, result.list));
+      const mergedCustomLists = mergeCustomLists(customLists, result.customLists);
       setList(merged);
+      setCustomLists(mergedCustomLists);
 
       const uploadResult = await uploadListToGist({
         token: syncConfig.token,
         gistId: syncConfig.gistId,
         list: merged,
+        customLists: mergedCustomLists,
       });
 
       setLastSyncAt(uploadResult.syncedAt);
-      lastSyncedSnapshotRef.current = getListSnapshot(merged);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(merged, mergedCustomLists);
       autoSyncReadyRef.current = true;
       setSuccess("Listas mescladas e sincronizadas.");
     } catch (err) {
@@ -1116,6 +1190,114 @@ export default function ShowTrackApp() {
     setMovieToWatchSortMode(value);
   }
 
+  function createCustomList() {
+    const name = newCustomListName.trim();
+    if (!name) return;
+
+    const now = new Date().toISOString();
+    const customList = {
+      id: `custom-${Date.now()}`,
+      name,
+      itemUids: [],
+      sortMode: "oldest",
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setCustomLists((prev) => [...prev, customList]);
+    setSelectedCustomListId(customList.id);
+    setNewCustomListName("");
+  }
+
+  function updateCustomList(id, updater) {
+    setCustomLists((prev) =>
+      prev.map((customList) => {
+        if (customList.id !== id) return customList;
+        const updated =
+          typeof updater === "function" ? updater(customList) : { ...customList, ...updater };
+        return { ...updated, updatedAt: new Date().toISOString() };
+      })
+    );
+  }
+
+  function removeCustomList(id) {
+    const customList = customLists.find((entry) => entry.id === id);
+    if (!customList) return;
+
+    const confirmed = window.confirm(`Remover a lista "${customList.name}"?`);
+    if (!confirmed) return;
+
+    setCustomLists((prev) => prev.filter((entry) => entry.id !== id));
+  }
+
+  function toggleCustomListItem(customListId, itemUid) {
+    updateCustomList(customListId, (customList) => {
+      const current = new Set(customList.itemUids || []);
+
+      if (current.has(itemUid)) {
+        current.delete(itemUid);
+      } else {
+        current.add(itemUid);
+      }
+
+      return {
+        ...customList,
+        itemUids: [...current],
+      };
+    });
+  }
+
+  function getCustomListEntries(customList) {
+    if (!customList) return [];
+
+    const selectedItems = (customList.itemUids || [])
+      .map((uid) => list.find((item) => item.uid === uid))
+      .filter(Boolean);
+
+    const entries = [];
+
+    for (const item of selectedItems) {
+      if (item.type === "movie") {
+        if (item.watched) continue;
+
+        entries.push({
+          id: `custom-${item.uid}`,
+          type: "movie",
+          parentUid: item.uid,
+          title: getPrimaryTitle(item),
+          subtitle: "Filme",
+          date: item.release_date || "",
+          dateLabel: formatDate(item.release_date),
+          poster_path: item.poster_path,
+          watched: item.watched,
+          canToggle: !item.release_date || isReleasedDate(item.release_date),
+        });
+
+        continue;
+      }
+
+      for (const episode of item.episodes || []) {
+        if (episode.watched) continue;
+
+        entries.push({
+          id: `custom-${item.uid}-${episode.id}`,
+          type: "episode",
+          parentUid: item.uid,
+          episodeId: episode.id,
+          title: getPrimaryTitle(item),
+          subtitle: `${formatEpisodeCode(episode.season_number, episode.episode_number)} · ${episode.name}`,
+          date: episode.air_date || "",
+          dateLabel: formatDate(episode.air_date),
+          poster_path: item.poster_path,
+          watched: episode.watched,
+          canToggle: !episode.air_date || isReleasedDate(episode.air_date),
+        });
+      }
+    }
+
+    return sortCustomEntries(entries, customList.sortMode || "oldest");
+  }
+
   function renderHeaderActions() {
     if (!["series", "movies"].includes(activeSection)) return null;
 
@@ -1131,9 +1313,155 @@ export default function ShowTrackApp() {
   }
 
   function renderListsPage() {
+    const selectedCustomList = customLists.find((customList) => customList.id === selectedCustomListId) || null;
+    const customEntries = getCustomListEntries(selectedCustomList);
+    const selectedUids = new Set(selectedCustomList?.itemUids || []);
+    const availableItems = [...list].sort(compareTitles);
+
     return (
-      <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-        Aqui depois a gente pode colocar listas como Marvel, Terror, Favoritas, Reassistir e por aí vai.
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+          <div className="flex flex-col gap-3 md:flex-row">
+            <input
+              value={newCustomListName}
+              onChange={(e) => setNewCustomListName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createCustomList();
+              }}
+              placeholder="Nome da lista, tipo Marvel"
+              className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
+            />
+            <button
+              onClick={createCustomList}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400"
+            >
+              <ListPlus className="h-4 w-4" />
+              Criar lista
+            </button>
+          </div>
+        </div>
+
+        {customLists.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
+            Cria uma lista para juntar filmes e séries do mesmo universo, saga ou humor do dia.
+          </div>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
+            <div className="space-y-2">
+              {customLists.map((customList) => (
+                <button
+                  key={customList.id}
+                  onClick={() => setSelectedCustomListId(customList.id)}
+                  className={[
+                    "w-full rounded-2xl border px-4 py-3 text-left text-sm transition",
+                    selectedCustomListId === customList.id
+                      ? "border-fuchsia-400 bg-fuchsia-500/15 text-white"
+                      : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  <div className="font-medium">{customList.name}</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {(customList.itemUids || []).length} títulos
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {selectedCustomList ? (
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+                  <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-xl font-bold text-white">{selectedCustomList.name}</div>
+                      <div className="text-sm text-zinc-500">{customEntries.length} itens pendentes</div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
+                        <SlidersHorizontal className="h-4 w-4" />
+                        <select
+                          value={selectedCustomList.sortMode || "oldest"}
+                          onChange={(e) =>
+                            updateCustomList(selectedCustomList.id, { sortMode: e.target.value })
+                          }
+                          className="bg-transparent outline-none"
+                        >
+                          <option className="bg-zinc-900" value="oldest">
+                            Mais antigo
+                          </option>
+                          <option className="bg-zinc-900" value="newest">
+                            Mais novo
+                          </option>
+                          <option className="bg-zinc-900" value="title">
+                            A-Z
+                          </option>
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={() => removeCustomList(selectedCustomList.id)}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {availableItems.map((item) => {
+                      const checked = selectedUids.has(item.uid);
+
+                      return (
+                        <label
+                          key={item.uid}
+                          className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
+                            className="h-4 w-4 accent-fuchsia-500"
+                          />
+                          <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
+                          <span className="text-xs text-zinc-500">
+                            {item.type === "movie" ? "Filme" : "Série"}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {customEntries.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
+                      Nada pendente nessa lista.
+                    </div>
+                  ) : (
+                    customEntries.map((entry) => (
+                      <TimelineRow
+                        key={entry.id}
+                        entry={{
+                          ...entry,
+                          metaLabel: entry.type === "movie" ? "Filme" : "Episódio",
+                        }}
+                        onToggle={() => {
+                          if (!entry.canToggle) return;
+                          if (entry.type === "movie") {
+                            toggleMovieWatched(entry.parentUid);
+                          } else {
+                            toggleEpisode(entry.parentUid, entry.episodeId);
+                          }
+                        }}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     );
   }

@@ -85,21 +85,22 @@ async function fetchGistFileContent(file) {
   return res.text();
 }
 
-function buildSyncPayload(list) {
+function buildSyncPayload(list, customLists = []) {
   return {
     app: "show-track",
     version: 1,
     syncedAt: new Date().toISOString(),
     list: cleanLegacyDates(list),
+    customLists,
   };
 }
 
-export async function uploadListToGist({ token, gistId, list }) {
+export async function uploadListToGist({ token, gistId, list, customLists = [] }) {
   if (!token) {
     throw new Error("Falta o token do GitHub para sincronizar.");
   }
 
-  const content = JSON.stringify(buildSyncPayload(list), null, 2);
+  const content = JSON.stringify(buildSyncPayload(list, customLists), null, 2);
 
   if (!gistId) {
     const gist = await githubFetch("/gists", token, {
@@ -164,6 +165,7 @@ export async function downloadListFromGist({ token, gistId }) {
 
   return {
     list: cleanLegacyDates(list),
+    customLists: Array.isArray(payload?.customLists) ? payload.customLists : [],
     syncedAt: payload?.syncedAt || gist.updated_at || "",
   };
 }
@@ -220,4 +222,34 @@ export function mergeLists(localList, remoteList) {
     .map((uid) => mergeItems(localById.get(uid), remoteById.get(uid)))
     .filter(Boolean)
     .sort((a, b) => (getItemTime(b) || "").localeCompare(getItemTime(a) || ""));
+}
+
+export function mergeCustomLists(localLists = [], remoteLists = []) {
+  const ids = new Set([
+    ...localLists.map((list) => list.id),
+    ...remoteLists.map((list) => list.id),
+  ]);
+
+  const localById = new Map(localLists.map((list) => [list.id, list]));
+  const remoteById = new Map(remoteLists.map((list) => [list.id, list]));
+
+  return [...ids]
+    .map((id) => {
+      const local = localById.get(id);
+      const remote = remoteById.get(id);
+
+      if (!local) return remote;
+      if (!remote) return local;
+
+      const primary = (remote.updatedAt || "") > (local.updatedAt || "") ? remote : local;
+      const secondary = primary === remote ? local : remote;
+
+      return {
+        ...secondary,
+        ...primary,
+        itemUids: [...new Set([...(secondary.itemUids || []), ...(primary.itemUids || [])])],
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
 }
