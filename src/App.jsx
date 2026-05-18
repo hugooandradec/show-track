@@ -16,7 +16,8 @@ import BottomNav from "./components/BottomNav";
 import WatchedDateModal from "./components/WatchedDateModal";
 import SeriesSection from "./components/SeriesSection";
 import MoviesSection from "./components/MoviesSection";
-import TimelineRow from "./components/TimelineRow";
+import SeriesRow from "./components/SeriesRow";
+import MovieRow from "./components/MovieRow";
 
 import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
 import {
@@ -212,7 +213,8 @@ function sortMovieItems(items, sortMode) {
 }
 
 function getCustomEntryDate(entry) {
-  return entry.date || "9999-12-31";
+  if (entry.type === "movie") return entry.release_date || "9999-12-31";
+  return getOldestUnwatchedDate(entry) || "9999-12-31";
 }
 
 function sortCustomEntries(entries, sortMode) {
@@ -220,9 +222,7 @@ function sortCustomEntries(entries, sortMode) {
 
   sorted.sort((a, b) => {
     if (sortMode === "title") {
-      const titleCompare = a.title.localeCompare(b.title, "pt-BR", { sensitivity: "base" });
-      if (titleCompare !== 0) return titleCompare;
-      return (a.subtitle || "").localeCompare(b.subtitle || "", "pt-BR", { sensitivity: "base" });
+      return compareTitles(a, b);
     }
 
     const da = getCustomEntryDate(a);
@@ -232,7 +232,7 @@ function sortCustomEntries(entries, sortMode) {
       return sortMode === "newest" ? db.localeCompare(da) : da.localeCompare(db);
     }
 
-    return a.title.localeCompare(b.title, "pt-BR", { sensitivity: "base" });
+    return compareTitles(a, b);
   });
 
   return sorted;
@@ -1254,46 +1254,9 @@ export default function ShowTrackApp() {
       .map((uid) => list.find((item) => item.uid === uid))
       .filter(Boolean);
 
-    const entries = [];
-
-    for (const item of selectedItems) {
-      if (item.type === "movie") {
-        if (item.watched) continue;
-
-        entries.push({
-          id: `custom-${item.uid}`,
-          type: "movie",
-          parentUid: item.uid,
-          title: getPrimaryTitle(item),
-          subtitle: "Filme",
-          date: item.release_date || "",
-          dateLabel: formatDate(item.release_date),
-          poster_path: item.poster_path,
-          watched: item.watched,
-          canToggle: !item.release_date || isReleasedDate(item.release_date),
-        });
-
-        continue;
-      }
-
-      for (const episode of item.episodes || []) {
-        if (episode.watched) continue;
-
-        entries.push({
-          id: `custom-${item.uid}-${episode.id}`,
-          type: "episode",
-          parentUid: item.uid,
-          episodeId: episode.id,
-          title: getPrimaryTitle(item),
-          subtitle: `${formatEpisodeCode(episode.season_number, episode.episode_number)} · ${episode.name}`,
-          date: episode.air_date || "",
-          dateLabel: formatDate(episode.air_date),
-          poster_path: item.poster_path,
-          watched: episode.watched,
-          canToggle: !episode.air_date || isReleasedDate(episode.air_date),
-        });
-      }
-    }
+    const entries = selectedItems.filter((item) =>
+      item.type === "movie" ? !isMovieFullyWatched(item) : !isSeriesFullyWatched(item)
+    );
 
     return sortCustomEntries(entries, customList.sortMode || "oldest");
   }
@@ -1317,6 +1280,111 @@ export default function ShowTrackApp() {
     const customEntries = getCustomListEntries(selectedCustomList);
     const selectedUids = new Set(selectedCustomList?.itemUids || []);
     const availableItems = [...list].sort(compareTitles);
+
+    if (selectedCustomList) {
+      return (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/20 p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <button
+                onClick={() => setSelectedCustomListId("")}
+                className="mb-2 text-sm text-zinc-400 transition hover:text-white"
+              >
+                Voltar para listas
+              </button>
+              <div className="text-2xl font-bold text-white">{selectedCustomList.name}</div>
+              <div className="text-sm text-zinc-500">
+                {(selectedCustomList.itemUids || []).length} títulos, {customEntries.length} pendentes
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
+                <SlidersHorizontal className="h-4 w-4" />
+                <select
+                  value={selectedCustomList.sortMode || "oldest"}
+                  onChange={(e) =>
+                    updateCustomList(selectedCustomList.id, { sortMode: e.target.value })
+                  }
+                  className="bg-transparent outline-none"
+                >
+                  <option className="bg-zinc-900" value="oldest">
+                    Mais antigo
+                  </option>
+                  <option className="bg-zinc-900" value="newest">
+                    Mais novo
+                  </option>
+                  <option className="bg-zinc-900" value="title">
+                    A-Z
+                  </option>
+                </select>
+              </div>
+
+              <button
+                onClick={() => removeCustomList(selectedCustomList.id)}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
+              >
+                <Trash2 className="h-4 w-4" />
+                Remover
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+            <div className="mb-3 text-sm font-medium text-white">Títulos da lista</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {availableItems.map((item) => {
+                const checked = selectedUids.has(item.uid);
+
+                return (
+                  <label
+                    key={item.uid}
+                    className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
+                      className="h-4 w-4 accent-fuchsia-500"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
+                    <span className="text-xs text-zinc-500">
+                      {item.type === "movie" ? "Filme" : "Série"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {customEntries.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
+                Nada pendente nessa lista.
+              </div>
+            ) : (
+              customEntries.map((item) =>
+                item.type === "movie" ? (
+                  <MovieRow
+                    key={item.uid}
+                    item={item}
+                    onToggleMovie={toggleMovieWatched}
+                    onOpenDetails={setDrawerUid}
+                  />
+                ) : (
+                  <SeriesRow
+                    key={item.uid}
+                    item={item}
+                    onToggleEpisode={toggleEpisode}
+                    onOpenDetails={setDrawerUid}
+                  />
+                )
+              )
+            )}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-4">
@@ -1346,120 +1414,22 @@ export default function ShowTrackApp() {
             Cria uma lista para juntar filmes e séries do mesmo universo, saga ou humor do dia.
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
-            <div className="space-y-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {customLists.map((customList) => (
                 <button
                   key={customList.id}
                   onClick={() => setSelectedCustomListId(customList.id)}
-                  className={[
-                    "w-full rounded-2xl border px-4 py-3 text-left text-sm transition",
-                    selectedCustomListId === customList.id
-                      ? "border-fuchsia-400 bg-fuchsia-500/15 text-white"
-                      : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10",
-                  ].join(" ")}
+                  className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-left transition hover:bg-white/[0.06]"
                 >
-                  <div className="font-medium">{customList.name}</div>
-                  <div className="mt-1 text-xs text-zinc-500">
+                  <div className="text-lg font-semibold text-white">{customList.name}</div>
+                  <div className="mt-2 text-sm text-zinc-500">
                     {(customList.itemUids || []).length} títulos
+                  </div>
+                  <div className="mt-4 text-xs text-zinc-400">
+                    {getCustomListEntries(customList).length} pendentes
                   </div>
                 </button>
               ))}
-            </div>
-
-            {selectedCustomList ? (
-              <div className="space-y-4">
-                <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-                  <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <div className="text-xl font-bold text-white">{selectedCustomList.name}</div>
-                      <div className="text-sm text-zinc-500">{customEntries.length} itens pendentes</div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
-                        <SlidersHorizontal className="h-4 w-4" />
-                        <select
-                          value={selectedCustomList.sortMode || "oldest"}
-                          onChange={(e) =>
-                            updateCustomList(selectedCustomList.id, { sortMode: e.target.value })
-                          }
-                          className="bg-transparent outline-none"
-                        >
-                          <option className="bg-zinc-900" value="oldest">
-                            Mais antigo
-                          </option>
-                          <option className="bg-zinc-900" value="newest">
-                            Mais novo
-                          </option>
-                          <option className="bg-zinc-900" value="title">
-                            A-Z
-                          </option>
-                        </select>
-                      </div>
-
-                      <button
-                        onClick={() => removeCustomList(selectedCustomList.id)}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 md:grid-cols-2">
-                    {availableItems.map((item) => {
-                      const checked = selectedUids.has(item.uid);
-
-                      return (
-                        <label
-                          key={item.uid}
-                          className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
-                            className="h-4 w-4 accent-fuchsia-500"
-                          />
-                          <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
-                          <span className="text-xs text-zinc-500">
-                            {item.type === "movie" ? "Filme" : "Série"}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {customEntries.length === 0 ? (
-                    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-                      Nada pendente nessa lista.
-                    </div>
-                  ) : (
-                    customEntries.map((entry) => (
-                      <TimelineRow
-                        key={entry.id}
-                        entry={{
-                          ...entry,
-                          metaLabel: entry.type === "movie" ? "Filme" : "Episódio",
-                        }}
-                        onToggle={() => {
-                          if (!entry.canToggle) return;
-                          if (entry.type === "movie") {
-                            toggleMovieWatched(entry.parentUid);
-                          } else {
-                            toggleEpisode(entry.parentUid, entry.episodeId);
-                          }
-                        }}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            ) : null}
           </div>
         )}
       </div>
