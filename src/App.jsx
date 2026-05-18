@@ -250,6 +250,7 @@ export default function ShowTrackApp() {
   const [selectedCustomListId, setSelectedCustomListId] = useState("");
   const [editingCustomListItems, setEditingCustomListItems] = useState(false);
   const [newCustomListName, setNewCustomListName] = useState("");
+  const [customListSearchQuery, setCustomListSearchQuery] = useState("");
   const [seriesQuery, setSeriesQuery] = useState("");
   const [movieQuery, setMovieQuery] = useState("");
   const [seriesLocalQuery, setSeriesLocalQuery] = useState("");
@@ -1207,6 +1208,7 @@ export default function ShowTrackApp() {
     setCustomLists((prev) => [...prev, customList]);
     setSelectedCustomListId(customList.id);
     setEditingCustomListItems(true);
+    setCustomListSearchQuery("");
     setNewCustomListName("");
   }
 
@@ -1280,7 +1282,18 @@ export default function ShowTrackApp() {
     const selectedCustomList = customLists.find((customList) => customList.id === selectedCustomListId) || null;
     const customEntries = getCustomListEntries(selectedCustomList);
     const selectedUids = new Set(selectedCustomList?.itemUids || []);
-    const availableItems = [...list].sort(compareTitles);
+    const customSearch = customListSearchQuery.trim();
+    const availableItems = [...list]
+      .filter((item) =>
+        matchesQuery([item.title, item.original_title, getPrimaryTitle(item)], customSearch)
+      )
+      .sort((a, b) => {
+        const aSelected = selectedUids.has(a.uid);
+        const bSelected = selectedUids.has(b.uid);
+        if (aSelected !== bSelected) return aSelected ? -1 : 1;
+        return compareTitles(a, b);
+      })
+      .slice(0, customSearch ? 30 : 12);
 
     if (selectedCustomList) {
       return (
@@ -1369,29 +1382,53 @@ export default function ShowTrackApp() {
 
           {editingCustomListItems ? (
             <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <div className="mb-3 text-sm font-medium text-white">Títulos da lista</div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {availableItems.map((item) => {
-                  const checked = selectedUids.has(item.uid);
+              <div className="mb-3 text-sm font-medium text-white">Buscar títulos adicionados</div>
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" />
+                <input
+                  value={customListSearchQuery}
+                  onChange={(e) => setCustomListSearchQuery(e.target.value)}
+                  placeholder="Buscar na tua biblioteca..."
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-12 pr-4 text-white outline-none placeholder:text-zinc-500 focus:border-fuchsia-400/40"
+                />
+              </div>
 
-                  return (
-                    <label
-                      key={item.uid}
-                      className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/10"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
-                        className="h-4 w-4 accent-fuchsia-500"
-                      />
-                      <span className="min-w-0 flex-1 truncate">{getPrimaryTitle(item)}</span>
-                      <span className="text-xs text-zinc-500">
-                        {item.type === "movie" ? "Filme" : "Série"}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="space-y-2">
+                {availableItems.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
+                    Nada encontrado na tua biblioteca.
+                  </div>
+                ) : (
+                  availableItems.map((item) => {
+                    const checked = selectedUids.has(item.uid);
+
+                    return (
+                      <div
+                        key={item.uid}
+                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-zinc-300"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-white">{getPrimaryTitle(item)}</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {item.type === "movie" ? "Filme" : "Série"}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
+                          className={[
+                            "rounded-2xl px-4 py-2 text-sm font-medium transition",
+                            checked
+                              ? "border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                              : "bg-fuchsia-500 text-white hover:bg-fuchsia-400",
+                          ].join(" ")}
+                        >
+                          {checked ? "Remover" : "Adicionar"}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           ) : null}
