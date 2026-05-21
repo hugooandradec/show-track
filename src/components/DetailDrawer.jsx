@@ -13,6 +13,7 @@ import { formatDate } from "../utils/format";
 import { getPrimaryTitle } from "../utils/titles";
 import { getPoster } from "../utils/posters";
 import { LS_TOKEN, tmdbFetch } from "../utils/tmdb";
+import { getSeriesStatusLabel, getSeriesStatusTone } from "../utils/seriesStatus";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -175,6 +176,7 @@ export default function DetailDrawer({
     tvSource?.networks?.map((network) => network.name).join(", ") || tvSource?.network || "";
   const releaseYear = (tvSource?.release_date || item?.release_date || "").slice(0, 4);
   const airTime = tvSource?.air_time || item?.air_time || "";
+  const seriesStatusLabel = getSeriesStatusLabel(tvSource?.status || item?.status);
 
   return (
     <div
@@ -296,6 +298,17 @@ export default function DetailDrawer({
                         <div className="flex items-center gap-2">
                           <Clock3 className="h-4 w-4 text-zinc-400" />
                           <span>{airTime}</span>
+                        </div>
+                      ) : null}
+
+                      {seriesStatusLabel ? (
+                        <div
+                          className={cx(
+                            "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
+                            getSeriesStatusTone(tvSource?.status || item?.status)
+                          )}
+                        >
+                          {seriesStatusLabel}
                         </div>
                       ) : null}
                     </div>

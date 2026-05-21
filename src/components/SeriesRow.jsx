@@ -3,6 +3,7 @@ import { formatDate, formatEpisodeCode, formatAiringMeta } from "../utils/format
 import { getNextUnwatched, getSeriesProgress, getEpisodeAirTime } from "../utils/helpers";
 import { getPrimaryTitle } from "../utils/titles";
 import { getPoster } from "../utils/posters";
+import { getSeriesStatusLabel, getSeriesStatusTone } from "../utils/seriesStatus";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -15,6 +16,7 @@ export default function SeriesRow({ item, onToggleEpisode, onOpenDetails }) {
   const done = progress.total > 0 && progress.watched === progress.total;
   const primaryTitle = getPrimaryTitle(item);
   const canToggleNext = !!next && (!next.air_date || next.air_date <= today);
+  const statusLabel = getSeriesStatusLabel(item.status);
 
   const scheduleLabel = next
     ? formatAiringMeta({
@@ -54,6 +56,17 @@ export default function SeriesRow({ item, onToggleEpisode, onOpenDetails }) {
         </div>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+          {statusLabel ? (
+            <span
+              className={cx(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                getSeriesStatusTone(item.status)
+              )}
+            >
+              {statusLabel}
+            </span>
+          ) : null}
+
           <span className="inline-flex items-center gap-1">
             <CalendarDays className="h-3.5 w-3.5" />
             {next ? formatDate(next.air_date) : "Tudo visto"}

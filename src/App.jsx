@@ -165,6 +165,14 @@ function sortSeriesItems(items, statusFilter, sortMode) {
   const sorted = [...items];
 
   sorted.sort((a, b) => {
+    if (statusFilter === "to-watch") {
+      const aDone = isSeriesFullyWatched(a);
+      const bDone = isSeriesFullyWatched(b);
+
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      if (aDone && bDone) return compareTitles(a, b);
+    }
+
     if (sortMode === "title") {
       return compareTitles(a, b);
     }
@@ -264,18 +272,12 @@ export default function ShowTrackApp() {
   const [seriesTab, setSeriesTab] = useState(() => getSavedUiPreferences().seriesTab || "added");
   const [moviesTab, setMoviesTab] = useState(() => getSavedUiPreferences().moviesTab || "added");
 
-  const [seriesStatusFilter, setSeriesStatusFilter] = useState(
-    () => getSavedUiPreferences().seriesStatusFilter || "to-watch"
-  );
   const [movieStatusFilter, setMovieStatusFilter] = useState(
     () => getSavedUiPreferences().movieStatusFilter || "to-watch"
   );
 
   const [seriesToWatchSortMode, setSeriesToWatchSortMode] = useState(
     () => getSavedSortPreferences().seriesToWatchSortMode || "oldest"
-  );
-  const [seriesWatchedSortMode, setSeriesWatchedSortMode] = useState(
-    () => getSavedSortPreferences().seriesWatchedSortMode || "newest"
   );
   const [movieToWatchSortMode, setMovieToWatchSortMode] = useState(
     () => getSavedSortPreferences().movieToWatchSortMode || "newest"
@@ -305,8 +307,7 @@ export default function ShowTrackApp() {
   const customListsRef = useRef(customLists);
   const refreshedSeriesRef = useRef(new Set());
 
-  const currentSeriesSortMode =
-    seriesStatusFilter === "watched" ? seriesWatchedSortMode : seriesToWatchSortMode;
+  const currentSeriesSortMode = seriesToWatchSortMode;
 
   const currentMovieSortMode =
     movieStatusFilter === "watched" ? movieWatchedSortMode : movieToWatchSortMode;
@@ -497,17 +498,11 @@ export default function ShowTrackApp() {
       LS_SORT_PREFERENCES,
       JSON.stringify({
         seriesToWatchSortMode,
-        seriesWatchedSortMode,
         movieToWatchSortMode,
         movieWatchedSortMode,
       })
     );
-  }, [
-    seriesToWatchSortMode,
-    seriesWatchedSortMode,
-    movieToWatchSortMode,
-    movieWatchedSortMode,
-  ]);
+  }, [seriesToWatchSortMode, movieToWatchSortMode, movieWatchedSortMode]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -516,11 +511,10 @@ export default function ShowTrackApp() {
         activeSection,
         seriesTab,
         moviesTab,
-        seriesStatusFilter,
         movieStatusFilter,
       })
     );
-  }, [activeSection, seriesTab, moviesTab, seriesStatusFilter, movieStatusFilter]);
+  }, [activeSection, seriesTab, moviesTab, movieStatusFilter]);
 
   useEffect(() => {
     if (!success) return;
@@ -568,13 +562,8 @@ export default function ShowTrackApp() {
       matchesQuery([item.title, item.original_title], seriesLocalQuery)
     );
 
-    const byStatus = bySearch.filter((item) => {
-      const fullyWatched = isSeriesFullyWatched(item);
-      return seriesStatusFilter === "watched" ? fullyWatched : !fullyWatched;
-    });
-
-    return sortSeriesItems(byStatus, seriesStatusFilter, currentSeriesSortMode);
-  }, [list, seriesLocalQuery, seriesStatusFilter, currentSeriesSortMode]);
+    return sortSeriesItems(bySearch, "to-watch", currentSeriesSortMode);
+  }, [list, seriesLocalQuery, currentSeriesSortMode]);
 
   const filteredMovieList = useMemo(() => {
     const baseItems = list.filter((item) => item.type === "movie");
@@ -1202,11 +1191,6 @@ export default function ShowTrackApp() {
   }
 
   function handleSeriesSortChange(value) {
-    if (seriesStatusFilter === "watched") {
-      setSeriesWatchedSortMode(value);
-      return;
-    }
-
     setSeriesToWatchSortMode(value);
   }
 
@@ -1721,8 +1705,6 @@ export default function ShowTrackApp() {
                 onChangeLocalQuery={setSeriesLocalQuery}
                 sortMode={currentSeriesSortMode}
                 onChangeSortMode={handleSeriesSortChange}
-                statusFilter={seriesStatusFilter}
-                onChangeStatusFilter={setSeriesStatusFilter}
                 list={filteredSeriesList}
                 historyEntries={filteredSeriesHistoryEntries}
                 visibleHistoryEntries={visibleSeriesHistoryEntries}

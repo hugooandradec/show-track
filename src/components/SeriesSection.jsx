@@ -1,24 +1,8 @@
-import {
-  CheckCircle2,
-  Clock3,
-  Search,
-  SlidersHorizontal,
-  Sparkles,
-  Tv,
-} from "lucide-react";
+import { CheckCircle2, Clock3, Search, SlidersHorizontal, Sparkles, Tv } from "lucide-react";
 import TabButton from "./TabButton";
 import SeriesRow from "./SeriesRow";
 import TimelineRow from "./TimelineRow";
 import SearchTabContent from "./SearchTabContent";
-
-function filterButtonClass(active) {
-  return [
-    "rounded-full border px-4 py-2 text-sm font-medium transition",
-    active
-      ? "border-fuchsia-400 bg-fuchsia-500/15 text-white"
-      : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10",
-  ].join(" ");
-}
 
 export default function SeriesSection({
   tab,
@@ -27,8 +11,6 @@ export default function SeriesSection({
   onChangeLocalQuery,
   sortMode,
   onChangeSortMode,
-  statusFilter,
-  onChangeStatusFilter,
   list,
   historyEntries,
   visibleHistoryEntries,
@@ -51,12 +33,12 @@ export default function SeriesSection({
 }) {
   const localPlaceholder =
     tab === "history"
-      ? "Filtrar histórico..."
+      ? "Filtrar historico..."
       : tab === "upcoming"
-      ? "Filtrar episódios em breve..."
+      ? "Filtrar episodios em breve..."
       : tab === "recent"
-      ? "Filtrar episódios lançados..."
-      : "Filtrar séries adicionadas...";
+      ? "Filtrar episodios lancados..."
+      : "Filtrar series adicionadas...";
 
   return (
     <>
@@ -74,7 +56,7 @@ export default function SeriesSection({
           onClick={() => onChangeTab("history")}
           icon={<CheckCircle2 className="h-4 w-4" />}
         >
-          Histórico
+          Historico
         </TabButton>
 
         <TabButton
@@ -90,7 +72,7 @@ export default function SeriesSection({
           onClick={() => onChangeTab("recent")}
           icon={<Clock3 className="h-4 w-4" />}
         >
-          Lançados
+          Lancados
         </TabButton>
 
         {tab === "search" ? (
@@ -130,42 +112,24 @@ export default function SeriesSection({
       )}
 
       {tab === "added" && (
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onChangeStatusFilter("to-watch")}
-              className={filterButtonClass(statusFilter === "to-watch")}
+        <div className="mb-5 flex justify-end">
+          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
+            <SlidersHorizontal className="h-4 w-4" />
+            <select
+              value={sortMode}
+              onChange={(e) => onChangeSortMode(e.target.value)}
+              className="bg-transparent outline-none"
             >
-              Para ver
-            </button>
-
-            <button
-              onClick={() => onChangeStatusFilter("watched")}
-              className={filterButtonClass(statusFilter === "watched")}
-            >
-              Visto
-            </button>
-          </div>
-
-          <div className="flex justify-end">
-            <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
-              <SlidersHorizontal className="h-4 w-4" />
-              <select
-                value={sortMode}
-                onChange={(e) => onChangeSortMode(e.target.value)}
-                className="bg-transparent outline-none"
-              >
-                <option className="bg-zinc-900" value="oldest">
-                  Mais antigo
-                </option>
-                <option className="bg-zinc-900" value="newest">
-                  Mais novo
-                </option>
-                <option className="bg-zinc-900" value="title">
-                  A-Z
-                </option>
-              </select>
-            </div>
+              <option className="bg-zinc-900" value="oldest">
+                Mais antigo
+              </option>
+              <option className="bg-zinc-900" value="newest">
+                Mais novo
+              </option>
+              <option className="bg-zinc-900" value="title">
+                A-Z
+              </option>
+            </select>
           </div>
         </div>
       )}
@@ -174,9 +138,7 @@ export default function SeriesSection({
         <div className="space-y-3">
           {list.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-              {statusFilter === "watched"
-                ? "Nenhuma série concluída por enquanto."
-                : "Nenhuma série pendente por enquanto."}
+              Nenhuma serie adicionada por enquanto.
             </div>
           ) : (
             list.map((item) => (
@@ -195,7 +157,7 @@ export default function SeriesSection({
         <div className="space-y-3">
           {historyEntries.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-              Ainda não tem episódios assistidos por aqui.
+              Ainda nao tem episodios assistidos por aqui.
             </div>
           ) : (
             <>
@@ -224,7 +186,7 @@ export default function SeriesSection({
         <div className="space-y-3">
           {upcomingEntries.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-              Nada previsto para os próximos 7 dias.
+              Nada previsto para os proximos 7 dias.
             </div>
           ) : (
             upcomingEntries.map((entry) => (
@@ -238,7 +200,7 @@ export default function SeriesSection({
         <div className="space-y-3">
           {recentEntries.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-              Nada lançado nos últimos 7 dias.
+              Nada lancado nos ultimos 7 dias.
             </div>
           ) : (
             recentEntries.map((entry) => (
