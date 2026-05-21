@@ -351,15 +351,16 @@ export default function ShowTrackApp() {
     if (!token) return undefined;
 
     const candidates = list
-      .filter((item) => item.type === "tv" && isSeriesFullyWatched(item))
+      .filter((item) => item.type === "tv")
       .filter((item) => !refreshedSeriesRef.current.has(item.uid));
 
     if (candidates.length === 0) return undefined;
 
     let cancelled = false;
 
-    async function refreshFinishedSeries() {
-      setAutoSyncStatus(`Atualizando ${candidates.length} séries concluídas...`);
+    async function refreshSeriesLibrary() {
+      setAutoSyncStatus(`Atualizando ${candidates.length} series...`);
+      const refreshedByUid = new Map();
 
       for (const item of candidates) {
         if (cancelled) return;
@@ -373,20 +374,24 @@ export default function ShowTrackApp() {
             continue;
           }
 
-          setList((prev) =>
-            prev.map((current) => (current.uid === item.uid ? cleanLegacyDates([refreshed])[0] : current))
-          );
+          refreshedByUid.set(item.uid, cleanLegacyDates([refreshed])[0]);
         } catch {
           // Keep the refresh quiet; manual details still show a title-specific error if needed.
         }
       }
 
+      if (!cancelled && refreshedByUid.size > 0) {
+        setList((prev) =>
+          prev.map((current) => (refreshedByUid.has(current.uid) ? refreshedByUid.get(current.uid) : current))
+        );
+      }
+
       if (!cancelled) {
-        setAutoSyncStatus("Séries concluídas atualizadas.");
+        setAutoSyncStatus("Series atualizadas.");
       }
     }
 
-    refreshFinishedSeries();
+    refreshSeriesLibrary();
 
     return () => {
       cancelled = true;
