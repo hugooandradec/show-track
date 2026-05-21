@@ -64,6 +64,7 @@ function getRefreshSnapshot(item) {
     networks: item?.networks || [],
     air_time: item?.air_time || null,
     release_date: item?.release_date || null,
+    next_episode_to_air: item?.next_episode_to_air || null,
     status: item?.status || "",
     episodes: item?.episodes || [],
   });
@@ -82,6 +83,7 @@ function getSeriesRefreshSnapshot(item) {
     network: item?.network || "",
     networks: item?.networks || [],
     air_time: item?.air_time || null,
+    next_episode_to_air: item?.next_episode_to_air || null,
     number_of_seasons: item?.number_of_seasons || 0,
     number_of_episodes: item?.number_of_episodes || 0,
     status: item?.status || "",
@@ -155,6 +157,16 @@ function getLatestSeriesWatchedDate(item) {
   return dates[0] || item.updatedAt || item.createdAt || "";
 }
 
+function getNextSeriesReleaseDate(item) {
+  return item?.next_episode_to_air?.air_date || item?.nextEpisodeToAir?.air_date || null;
+}
+
+function isActiveSeries(item) {
+  return ["Returning Series", "In Production", "Planned", "Pilot", "continuing"].includes(
+    item?.status
+  );
+}
+
 function compareTitles(a, b) {
   return getSortTitle(a).localeCompare(getSortTitle(b), "pt-BR", {
     sensitivity: "base",
@@ -170,7 +182,22 @@ function sortSeriesItems(items, statusFilter, sortMode) {
       const bDone = isSeriesFullyWatched(b);
 
       if (aDone !== bDone) return aDone ? 1 : -1;
-      if (aDone && bDone) return compareTitles(a, b);
+      if (aDone && bDone) {
+        const nextA = getNextSeriesReleaseDate(a);
+        const nextB = getNextSeriesReleaseDate(b);
+
+        if (nextA || nextB) {
+          if (!nextA) return 1;
+          if (!nextB) return -1;
+          if (nextA !== nextB) return nextA.localeCompare(nextB);
+        }
+
+        const activeA = isActiveSeries(a);
+        const activeB = isActiveSeries(b);
+
+        if (activeA !== activeB) return activeA ? -1 : 1;
+        return compareTitles(a, b);
+      }
     }
 
     if (sortMode === "title") {
@@ -382,7 +409,11 @@ export default function ShowTrackApp() {
 
       if (!cancelled && refreshedByUid.size > 0) {
         setList((prev) =>
-          prev.map((current) => (refreshedByUid.has(current.uid) ? refreshedByUid.get(current.uid) : current))
+          prev.map((current) => {
+            const refreshed = refreshedByUid.get(current.uid);
+            if (!refreshed) return current;
+            return cleanLegacyDates(mergeLists([current], [refreshed]))[0] || current;
+          })
         );
       }
 
@@ -493,7 +524,7 @@ export default function ShowTrackApp() {
       } finally {
         setSyncing("");
       }
-    }, 1200);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [list, customLists, syncConfig]);
@@ -965,13 +996,17 @@ export default function ShowTrackApp() {
   }
 
   function updateItem(uid, updater) {
-    setList((prev) =>
-      prev.map((item) => {
+    setList((prev) => {
+      const next = prev.map((item) => {
         if (item.uid !== uid) return item;
         const updated = typeof updater === "function" ? updater(item) : { ...item, ...updater };
         return { ...updated, updatedAt: new Date().toISOString() };
-      })
-    );
+      });
+
+      listRef.current = next;
+      localStorage.setItem(LS_LIST, JSON.stringify(cleanLegacyDates(next)));
+      return next;
+    });
   }
 
   function openWatchModal(config) {
@@ -1017,6 +1052,7 @@ export default function ShowTrackApp() {
           ...ep,
           watched: true,
           watchedAt,
+          updatedAt: new Date().toISOString(),
         };
       }),
     }));
@@ -1038,6 +1074,7 @@ export default function ShowTrackApp() {
           ...ep,
           watched: true,
           watchedAt,
+          updatedAt: new Date().toISOString(),
         };
       }),
     }));
@@ -1098,6 +1135,7 @@ export default function ShowTrackApp() {
                 ...ep,
                 watched: false,
                 watchedAt: null,
+                updatedAt: new Date().toISOString(),
               }
             : ep
         ),
@@ -1146,6 +1184,7 @@ export default function ShowTrackApp() {
                 ...ep,
                 watched: false,
                 watchedAt: null,
+                updatedAt: new Date().toISOString(),
               }
             : ep
         ),

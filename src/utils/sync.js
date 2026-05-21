@@ -177,12 +177,30 @@ function getItemTime(item) {
 function mergeEpisodeLists(primaryEpisodes = [], secondaryEpisodes = []) {
   const merged = new Map();
 
+  function chooseEpisode(current, incoming) {
+    if (!current) return incoming;
+    if (!incoming) return current;
+
+    const currentTime = current.updatedAt || current.watchedAt || "";
+    const incomingTime = incoming.updatedAt || incoming.watchedAt || "";
+
+    if (currentTime || incomingTime) {
+      return incomingTime > currentTime ? incoming : current;
+    }
+
+    if (current.watched !== incoming.watched) {
+      return current.watched ? current : incoming;
+    }
+
+    return incoming;
+  }
+
   for (const episode of secondaryEpisodes) {
-    merged.set(episode.id, episode);
+    merged.set(episode.id, chooseEpisode(merged.get(episode.id), episode));
   }
 
   for (const episode of primaryEpisodes) {
-    merged.set(episode.id, episode);
+    merged.set(episode.id, chooseEpisode(merged.get(episode.id), episode));
   }
 
   return [...merged.values()].sort((a, b) => {

@@ -113,6 +113,7 @@ export async function buildTvItem(base, token) {
     air_time: details.air_time || null,
     number_of_seasons: details.number_of_seasons || seasons.length,
     number_of_episodes: details.number_of_episodes || episodes.length,
+    next_episode_to_air: details.next_episode_to_air || null,
     status: details.status,
     episodes,
     note: "",
@@ -140,6 +141,7 @@ export async function refreshTvItem(item, token) {
         id: ep.id,
         watched: ep.watched,
         watchedAt: ep.watchedAt,
+        updatedAt: ep.updatedAt || null,
         air_time: ep.air_time || null,
       },
     ])
@@ -163,6 +165,7 @@ export async function refreshTvItem(item, token) {
         still_path: ep.still_path || null,
         watched: saved?.watched || false,
         watchedAt: saved?.watchedAt || null,
+        updatedAt: saved?.updatedAt || null,
       };
     })
   );
@@ -182,6 +185,7 @@ export async function refreshTvItem(item, token) {
     air_time: details.air_time || item.air_time || null,
     number_of_seasons: details.number_of_seasons || seasons.length,
     number_of_episodes: details.number_of_episodes || episodes.length,
+    next_episode_to_air: details.next_episode_to_air || null,
     status: details.status || item.status,
     episodes,
     updatedAt: new Date().toISOString(),

@@ -84,6 +84,7 @@ export default function DetailDrawer({
               id: ep.id,
               watched: ep.watched,
               watchedAt: ep.watchedAt,
+              updatedAt: ep.updatedAt || null,
               air_time: ep.air_time || null,
             },
           ])
@@ -107,6 +108,7 @@ export default function DetailDrawer({
               still_path: ep.still_path || null,
               watched: saved?.watched || false,
               watchedAt: saved?.watchedAt || null,
+              updatedAt: saved?.updatedAt || null,
             };
           })
         );
@@ -120,6 +122,7 @@ export default function DetailDrawer({
             networks: details.networks || [],
             air_time: details.air_time || item.air_time || null,
             release_date: details.first_air_date || item.release_date || null,
+            next_episode_to_air: details.next_episode_to_air || null,
             status: details.status || item.status || "",
             episodes: mergedEpisodes,
           };
