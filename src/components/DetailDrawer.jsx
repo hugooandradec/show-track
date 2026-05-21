@@ -179,7 +179,7 @@ export default function DetailDrawer({
   return (
     <div
       className={cx(
-        "fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-white/10 bg-[#0d0717]/95 shadow-2xl backdrop-blur-xl transition-transform duration-300",
+        "fixed inset-y-0 right-0 z-50 w-full max-w-xl overscroll-contain border-l border-white/10 bg-[#0d0717]/95 shadow-2xl backdrop-blur-xl transition-transform duration-300",
         open ? "translate-x-0" : "translate-x-full"
       )}
     >
@@ -198,7 +198,7 @@ export default function DetailDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-5" style={{ WebkitOverflowScrolling: "touch" }}>
           {!item ? null : item.type === "movie" ? (
             <div className="space-y-4">
               <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]">
