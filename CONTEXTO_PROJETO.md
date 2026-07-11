@@ -13,6 +13,7 @@ O app migrou do modelo antigo `localStorage + GitHub Gist + token TMDB digitado 
 - Funcao serverless `/api/tmdb` para consultar TMDB com token privado no servidor.
 - `localStorage` como cache local/offline.
 - Backup JSON manual apenas como seguranca extra.
+- Importador de export JSON do SeriesGuide para migrar historico.
 
 ## Stack
 
@@ -74,6 +75,7 @@ RLS permite que cada usuario leia/insira/atualize apenas a propria linha.
 - `src/hooks/useTmdbSearch.js`: busca debounced no TMDB via proxy.
 - `src/utils/tmdb.js`: chama `/api/tmdb` e monta itens de filme/serie.
 - `src/utils/cloudSync.js`: carrega/salva payload no Supabase.
+- `src/utils/seriesGuideImport.js`: converte export de series do SeriesGuide.
 - `src/utils/supabaseClient.js`: cliente Supabase.
 - `src/utils/sync.js`: merge de biblioteca/listas.
 - `src/utils/helpers.js`: progresso, datas e regras de episodios.
@@ -123,6 +125,7 @@ Lista customizada:
 - `Listas`: listas customizadas.
 - `Estatisticas`: resumo simples.
 - `Mais`: conta, status de sync e backup local.
+- `Mais`: tambem possui importacao de backup do SeriesGuide.
 
 ## Regras importantes
 

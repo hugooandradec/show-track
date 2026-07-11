@@ -39,6 +39,7 @@ import { mergeCustomLists, mergeLists } from "./utils/sync";
 import { cleanLegacyDates } from "./utils/listCleanup";
 import { isSupabaseConfigured, supabase } from "./utils/supabaseClient";
 import { loadCloudData, saveCloudData } from "./utils/cloudSync";
+import { parseSeriesGuideShows } from "./utils/seriesGuideImport";
 
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
@@ -337,6 +338,7 @@ export default function ShowTrackApp() {
   const customListsRef = useRef(customLists);
   const refreshedSeriesRef = useRef(new Set());
   const backupFileInputRef = useRef(null);
+  const seriesGuideFileInputRef = useRef(null);
 
   const currentSeriesSortMode = seriesToWatchSortMode;
 
@@ -1036,6 +1038,32 @@ export default function ShowTrackApp() {
       setSuccess("Backup importado e mesclado com a biblioteca atual.");
     } catch (err) {
       setError(err.message || "Nao consegui importar esse backup.");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function importSeriesGuideBackup(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setError("");
+      const text = await file.text();
+      const result = parseSeriesGuideShows(text);
+      const merged = cleanLegacyDates(mergeLists(list, result.list));
+
+      setList(merged);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(merged, customLists);
+      setSuccess(
+        `SeriesGuide importado: ${result.summary.importedShows} series, ${result.summary.watchedEpisodes}/${result.summary.totalEpisodes} episodios vistos.`
+      );
+
+      if (result.summary.skippedShows > 0) {
+        setError(`${result.summary.skippedShows} series sem TMDB ID foram ignoradas.`);
+      }
+    } catch (err) {
+      setError(err.message || "Nao consegui importar o arquivo do SeriesGuide.");
     } finally {
       event.target.value = "";
     }
@@ -1972,6 +2000,13 @@ export default function ShowTrackApp() {
             onChange={importLocalBackup}
             className="hidden"
           />
+          <input
+            ref={seriesGuideFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={importSeriesGuideBackup}
+            className="hidden"
+          />
 
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
             <Save className="h-4 w-4" />
@@ -1980,10 +2015,10 @@ export default function ShowTrackApp() {
 
           <p className="mb-3 text-xs leading-relaxed text-zinc-500">
             O backup manual ficou como seguranca extra. No uso normal, a conta sincroniza tudo
-            automaticamente.
+            automaticamente. Tambem da para migrar um export de series do SeriesGuide.
           </p>
 
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-3">
             <button
               onClick={exportLocalBackup}
               disabled={stats.totalTitles === 0 && customLists.length === 0}
@@ -1999,6 +2034,14 @@ export default function ShowTrackApp() {
             >
               <CloudUpload className="h-4 w-4" />
               Importar backup
+            </button>
+
+            <button
+              onClick={() => seriesGuideFileInputRef.current?.click()}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15"
+            >
+              <CloudUpload className="h-4 w-4" />
+              Importar SeriesGuide
             </button>
           </div>
         </div>

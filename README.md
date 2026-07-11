@@ -14,6 +14,7 @@ Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos n
 - Abas para episodios em breve e lancados recentemente.
 - Listas customizadas para sagas, universos ou qualquer agrupamento pessoal.
 - Backup local em JSON como seguranca extra.
+- Importacao de export JSON do SeriesGuide.
 - PWA simples para deploy na Vercel.
 
 ## Requisitos
@@ -78,6 +79,7 @@ npm run deploy
 - `src/hooks/useTmdbSearch.js`: busca com debounce no TMDB.
 - `src/utils/tmdb.js`: chamadas ao proxy `/api/tmdb` e montagem dos itens.
 - `src/utils/cloudSync.js`: leitura/gravacao do payload por usuario no Supabase.
+- `src/utils/seriesGuideImport.js`: conversor do export JSON do SeriesGuide.
 - `src/utils/supabaseClient.js`: cliente Supabase do frontend.
 - `src/utils/sync.js`: merge de biblioteca/listas.
 - `api/tmdb.js`: funcao serverless para consultar TMDB com token privado.
