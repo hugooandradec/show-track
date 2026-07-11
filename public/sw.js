@@ -1,10 +1,11 @@
-const CACHE_NAME = "show-track-v2";
+const CACHE_NAME = "show-track-v3";
+const APP_SHELL = "/";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(["/show-track/"]))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll([APP_SHELL]))
   );
 });
 
@@ -27,10 +28,10 @@ self.addEventListener("fetch", (event) => {
       fetch(request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/show-track/", copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(APP_SHELL, copy));
           return response;
         })
-        .catch(() => caches.match("/show-track/"))
+        .catch(() => caches.match(APP_SHELL))
     );
     return;
   }

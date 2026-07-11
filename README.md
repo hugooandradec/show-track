@@ -1,25 +1,50 @@
 # Show Track
 
-Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos no TMDB, salva uma biblioteca local, marca filmes/episodios/temporadas como assistidos, mostra historico, destaca proximos episodios e permite sincronizar os dados por GitHub Gist.
+Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos no TMDB por uma funcao serverless, salva a biblioteca por usuario no Supabase e mantem um cache local para uso mais rapido no navegador.
 
 ## Funcionalidades
 
-- Busca de series e filmes no TMDB.
+- Login por email/senha com Supabase Auth.
+- Sync automatico por usuario no Supabase.
+- Busca de series e filmes no TMDB sem pedir token no app.
 - Tela Hoje com series para continuar, filmes pendentes e lancamentos proximos.
 - Biblioteca separada por series e filmes.
 - Progresso de series por episodio e temporada.
 - Historico de filmes e episodios assistidos.
 - Abas para episodios em breve e lancados recentemente.
 - Listas customizadas para sagas, universos ou qualquer agrupamento pessoal.
-- Sincronizacao manual ou automatica usando um Gist privado do GitHub.
-- Backup local em JSON, com importacao mesclada aos dados atuais.
-- PWA simples, preparado para rodar em `/show-track/`.
+- Backup local em JSON como seguranca extra.
+- PWA simples para deploy na Vercel.
 
 ## Requisitos
 
 - Node.js compativel com Vite 8.
-- Token Bearer do TMDB para buscar e adicionar titulos.
-- Token do GitHub com acesso a Gists, se quiser sincronizar entre dispositivos.
+- Projeto Supabase com Auth habilitado.
+- Tabela `show_track_user_data`, criada pela migration em `supabase/migrations`.
+- Token Bearer do TMDB configurado como segredo no deploy.
+- Deploy em ambiente com funcao serverless, como Vercel.
+
+## Variaveis de ambiente
+
+Crie um `.env.local` para desenvolvimento e configure as mesmas variaveis na Vercel:
+
+```bash
+VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+VITE_SUPABASE_ANON_KEY=SUA_CHAVE_ANON_PUBLICA
+TMDB_BEARER_TOKEN=SEU_BEARER_TOKEN_PRIVADO_DO_TMDB
+```
+
+`TMDB_BEARER_TOKEN` fica apenas no servidor. O frontend chama `/api/tmdb`.
+
+## Supabase
+
+Execute o SQL em:
+
+```text
+supabase/migrations/001_show_track_user_data.sql
+```
+
+O modelo inicial e conservador: uma linha por usuario, com a biblioteca e listas customizadas em JSON. Isso preserva o formato atual do app e deixa uma normalizacao futura para quando valer a pena.
 
 ## Como rodar
 
@@ -28,18 +53,11 @@ npm install
 npm run dev
 ```
 
-Depois abra a URL exibida pelo Vite.
+Para testar a funcao `/api/tmdb` localmente, use Vercel Dev:
 
-## Configuracao no app
-
-No menu `Mais`:
-
-- Salve o token do TMDB para habilitar buscas.
-- Salve o token do GitHub e, opcionalmente, o ID do Gist para sincronizar.
-- Se nao houver ID do Gist, o primeiro envio cria um Gist privado e salva o ID localmente.
-- Use o backup local para exportar/importar um JSON da biblioteca quando quiser uma copia manual.
-
-Os dados principais ficam no `localStorage`. A sincronizacao exporta/importa o arquivo `show-track-list.json` em um Gist.
+```bash
+npx vercel dev
+```
 
 ## Scripts
 
@@ -51,13 +69,18 @@ npm run preview
 npm run deploy
 ```
 
+`npm run deploy` usa `npx vercel --prod`.
+
 ## Estrutura
 
-- `src/App.jsx`: estado principal, regras de negocio, filtros, listas e sincronizacao.
+- `src/App.jsx`: estado principal, regras de negocio, auth, sync, filtros e listas.
 - `src/components/`: telas, rows, drawer de detalhes e navegacao.
 - `src/hooks/useTmdbSearch.js`: busca com debounce no TMDB.
-- `src/utils/tmdb.js`: chamadas ao TMDB e montagem dos itens.
-- `src/utils/sync.js`: upload, download e merge via GitHub Gist.
+- `src/utils/tmdb.js`: chamadas ao proxy `/api/tmdb` e montagem dos itens.
+- `src/utils/cloudSync.js`: leitura/gravacao do payload por usuario no Supabase.
+- `src/utils/supabaseClient.js`: cliente Supabase do frontend.
+- `src/utils/sync.js`: merge de biblioteca/listas.
+- `api/tmdb.js`: funcao serverless para consultar TMDB com token privado.
 - `public/sw.js`: service worker simples para PWA.
 
 ## Contexto para manutencao

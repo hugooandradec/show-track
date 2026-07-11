@@ -21,7 +21,7 @@ import MovieRow from "./components/MovieRow";
 import TimelineRow from "./components/TimelineRow";
 import MiniStat from "./components/MiniStat";
 
-import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
+import { LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
 import {
   getOldestUnwatchedDate,
   normalizeText,
@@ -35,15 +35,10 @@ import {
 import { getPrimaryTitle } from "./utils/titles";
 import { formatEpisodeCode, formatAiringMeta, formatDate, formatDateTime } from "./utils/format";
 import { useTmdbSearch } from "./hooks/useTmdbSearch";
-import {
-  downloadListFromGist,
-  getSavedSyncConfig,
-  mergeCustomLists,
-  mergeLists,
-  saveSyncConfig,
-  uploadListToGist,
-} from "./utils/sync";
+import { mergeCustomLists, mergeLists } from "./utils/sync";
 import { cleanLegacyDates } from "./utils/listCleanup";
+import { isSupabaseConfigured, supabase } from "./utils/supabaseClient";
+import { loadCloudData, saveCloudData } from "./utils/cloudSync";
 
 const INITIAL_HISTORY_LIMIT = 10;
 const LS_SORT_PREFERENCES = "show-track-sort-preferences";
@@ -276,13 +271,19 @@ function sortCustomEntries(entries, sortMode) {
 }
 
 export default function ShowTrackApp() {
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
-  const [draftToken, setDraftToken] = useState(() => localStorage.getItem(LS_TOKEN) || "");
-  const [syncConfig, setSyncConfig] = useState(() => getSavedSyncConfig());
-  const [draftSyncConfig, setDraftSyncConfig] = useState(() => getSavedSyncConfig());
-  const [syncing, setSyncing] = useState("");
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
+  const [authMode, setAuthMode] = useState("signin");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [cloudBusy, setCloudBusy] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState("");
-  const [autoSyncStatus, setAutoSyncStatus] = useState("");
+  const [autoSyncStatus, setAutoSyncStatus] = useState(
+    isSupabaseConfigured
+      ? ""
+      : "Supabase ainda nao configurado. Preencha as variaveis de ambiente."
+  );
   const [customLists, setCustomLists] = useState(() => getSavedCustomLists());
   const [selectedCustomListId, setSelectedCustomListId] = useState("");
   const [editingCustomListItems, setEditingCustomListItems] = useState(false);
@@ -330,7 +331,7 @@ export default function ShowTrackApp() {
     }
   });
 
-  const autoSyncReadyRef = useRef(false);
+  const cloudSyncReadyRef = useRef(false);
   const lastSyncedSnapshotRef = useRef("");
   const listRef = useRef(list);
   const customListsRef = useRef(customLists);
@@ -352,7 +353,6 @@ export default function ShowTrackApp() {
     searchError,
     clearResults,
   } = useTmdbSearch({
-    token,
     query: currentSearchQuery,
     scope: searchScope,
     enabled: isSearchTabOpen,
@@ -378,8 +378,6 @@ export default function ShowTrackApp() {
   }, [customLists, selectedCustomListId]);
 
   useEffect(() => {
-    if (!token) return undefined;
-
     const candidates = list
       .filter((item) => item.type === "tv")
       .filter((item) => !refreshedSeriesRef.current.has(item.uid));
@@ -397,7 +395,7 @@ export default function ShowTrackApp() {
         refreshedSeriesRef.current.add(item.uid);
 
         try {
-          const refreshed = await refreshTvItem(item, token);
+          const refreshed = await refreshTvItem(item);
           if (cancelled) return;
 
           if (getSeriesRefreshSnapshot(item) === getSeriesRefreshSnapshot(refreshed)) {
@@ -430,38 +428,60 @@ export default function ShowTrackApp() {
     return () => {
       cancelled = true;
     };
-  }, [list, token]);
+  }, [list]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setAuthReady(true);
+      return undefined;
+    }
+
+    let active = true;
+
+    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (!active) return;
+      if (sessionError) setError(sessionError.message || "Nao consegui carregar a sessao.");
+      setSession(data.session || null);
+      setAuthReady(true);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession || null);
+      setAuthReady(true);
+    });
+
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    autoSyncReadyRef.current = false;
+    cloudSyncReadyRef.current = false;
     lastSyncedSnapshotRef.current = "";
 
-    if (!syncConfig.autoSync || !syncConfig.token) {
-      setAutoSyncStatus("");
+    if (!session?.user || !supabase) {
+      setAutoSyncStatus(
+        isSupabaseConfigured ? "" : "Supabase ainda nao configurado. Sync na nuvem indisponivel."
+      );
       return () => {
         cancelled = true;
       };
     }
 
-    if (!syncConfig.gistId) {
-      autoSyncReadyRef.current = true;
-      lastSyncedSnapshotRef.current = getSyncSnapshot(listRef.current, customListsRef.current);
-      setAutoSyncStatus("Automática ligada. O primeiro envio cria o Gist.");
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    async function syncRemoteOnStart() {
+    async function syncCloudOnStart() {
       try {
-        setSyncing("auto-download");
+        setCloudBusy("download");
         setAutoSyncStatus("Sincronizando...");
 
-        const result = await downloadListFromGist(syncConfig);
-        const merged = cleanLegacyDates(mergeLists(listRef.current, result.list));
-        const mergedCustomLists = mergeCustomLists(customListsRef.current, result.customLists);
+        const result = await loadCloudData(supabase, session.user.id);
+        const merged = cleanLegacyDates(mergeLists(listRef.current, result?.list || []));
+        const mergedCustomLists = mergeCustomLists(
+          customListsRef.current,
+          result?.customLists || []
+        );
         const mergedSnapshot = getSyncSnapshot(merged, mergedCustomLists);
 
         if (cancelled) return;
@@ -472,65 +492,54 @@ export default function ShowTrackApp() {
         }
 
         lastSyncedSnapshotRef.current = mergedSnapshot;
-        autoSyncReadyRef.current = true;
-        setLastSyncAt(result.syncedAt);
-        setAutoSyncStatus("Sincronização automática ligada.");
+        cloudSyncReadyRef.current = true;
+        setLastSyncAt(result?.updatedAt || "");
+        setAutoSyncStatus(result ? "Sincronizacao automatica ligada." : "Conta conectada.");
       } catch (err) {
         if (!cancelled) {
-          autoSyncReadyRef.current = true;
+          cloudSyncReadyRef.current = true;
           lastSyncedSnapshotRef.current = getSyncSnapshot(listRef.current, customListsRef.current);
           setAutoSyncStatus("");
-          setError(err.message || "Não consegui sincronizar automaticamente.");
+          setError(err.message || "Nao consegui sincronizar automaticamente.");
         }
       } finally {
-        if (!cancelled) setSyncing("");
+        if (!cancelled) setCloudBusy("");
       }
     }
 
-    syncRemoteOnStart();
+    syncCloudOnStart();
 
     return () => {
       cancelled = true;
     };
-  }, [syncConfig]);
+  }, [session]);
 
   useEffect(() => {
-    if (!syncConfig.autoSync || !syncConfig.token || !autoSyncReadyRef.current) return undefined;
+    if (!session?.user || !supabase || !cloudSyncReadyRef.current) return undefined;
 
     const snapshot = getSyncSnapshot(list, customLists);
     if (snapshot === lastSyncedSnapshotRef.current) return undefined;
 
     const timer = setTimeout(async () => {
       try {
-        setSyncing("auto-upload");
-        setAutoSyncStatus("Enviando alterações...");
+        setCloudBusy("upload");
+        setAutoSyncStatus("Salvando na nuvem...");
 
-        const result = await uploadListToGist({
-          token: syncConfig.token,
-          gistId: syncConfig.gistId,
-          list,
-          customLists,
-        });
-
-        if (result.gistId !== syncConfig.gistId) {
-          const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
-          setSyncConfig(saved);
-          setDraftSyncConfig(saved);
-        }
+        const result = await saveCloudData(supabase, session.user.id, list, customLists);
 
         lastSyncedSnapshotRef.current = snapshot;
-        setLastSyncAt(result.syncedAt);
-        setAutoSyncStatus("Alterações sincronizadas.");
+        setLastSyncAt(result?.updatedAt || new Date().toISOString());
+        setAutoSyncStatus("Alteracoes sincronizadas.");
       } catch (err) {
         setAutoSyncStatus("");
-        setError(err.message || "Não consegui enviar a sincronização automática.");
+        setError(err.message || "Nao consegui enviar a sincronizacao automatica.");
       } finally {
-        setSyncing("");
+        setCloudBusy("");
       }
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [list, customLists, syncConfig]);
+  }, [list, customLists, session]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -893,18 +902,90 @@ export default function ShowTrackApp() {
     return "Tuas séries adicionadas, organizadas pelo próximo episódio.";
   }, [activeSection, seriesTab, moviesTab]);
 
-  function persistToken() {
-    const cleaned = draftToken.trim();
-    localStorage.setItem(LS_TOKEN, cleaned);
-    setToken(cleaned);
-    setSuccess("Token salvo. Agora a busca já deve funcionar.");
+  async function submitAuth(event) {
+    event?.preventDefault();
+
+    if (!supabase || !isSupabaseConfigured) {
+      setError("Supabase ainda nao esta configurado.");
+      return;
+    }
+
+    const email = authEmail.trim();
+    if (!email || !authPassword) {
+      setError("Informe email e senha.");
+      return;
+    }
+
+    try {
+      setError("");
+      setAuthBusy(true);
+
+      const result =
+        authMode === "signup"
+          ? await supabase.auth.signUp({ email, password: authPassword })
+          : await supabase.auth.signInWithPassword({ email, password: authPassword });
+
+      if (result.error) throw result.error;
+
+      setSession(result.data.session || null);
+      setAuthPassword("");
+      setSuccess(
+        authMode === "signup"
+          ? "Conta criada. Se o Supabase pedir confirmacao, confira o email."
+          : "Conta conectada."
+      );
+    } catch (err) {
+      setError(err.message || "Nao consegui entrar na conta.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
-  function persistSyncConfig() {
-    const saved = saveSyncConfig(draftSyncConfig);
-    setSyncConfig(saved);
-    setDraftSyncConfig(saved);
-    setSuccess("Configuração de sincronização salva.");
+  async function signOut() {
+    if (!supabase) return;
+
+    try {
+      setError("");
+      setAuthBusy(true);
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
+      setSession(null);
+      cloudSyncReadyRef.current = false;
+      lastSyncedSnapshotRef.current = "";
+      setAutoSyncStatus("");
+      setLastSyncAt("");
+      setSuccess("Conta desconectada neste dispositivo.");
+    } catch (err) {
+      setError(err.message || "Nao consegui sair da conta.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function forceCloudSync() {
+    if (!supabase || !session?.user) {
+      setError("Entre na conta para sincronizar.");
+      return;
+    }
+
+    try {
+      setError("");
+      setCloudBusy("upload");
+      setAutoSyncStatus("Salvando na nuvem...");
+
+      const result = await saveCloudData(supabase, session.user.id, list, customLists);
+      const snapshot = getSyncSnapshot(list, customLists);
+
+      lastSyncedSnapshotRef.current = snapshot;
+      cloudSyncReadyRef.current = true;
+      setLastSyncAt(result?.updatedAt || new Date().toISOString());
+      setAutoSyncStatus("Alteracoes sincronizadas.");
+      setSuccess("Biblioteca sincronizada.");
+    } catch (err) {
+      setError(err.message || "Nao consegui sincronizar agora.");
+    } finally {
+      setCloudBusy("");
+    }
   }
 
   function exportLocalBackup() {
@@ -960,88 +1041,7 @@ export default function ShowTrackApp() {
     }
   }
 
-  async function uploadSyncList() {
-    try {
-      setError("");
-      setSyncing("upload");
-
-      const result = await uploadListToGist({
-        token: syncConfig.token,
-        gistId: syncConfig.gistId,
-        list,
-        customLists,
-      });
-
-      const saved = saveSyncConfig({ ...syncConfig, gistId: result.gistId });
-      setSyncConfig(saved);
-      setDraftSyncConfig(saved);
-      lastSyncedSnapshotRef.current = getSyncSnapshot(list, customLists);
-      autoSyncReadyRef.current = true;
-      setLastSyncAt(result.syncedAt);
-      setSuccess("Lista enviada para a nuvem.");
-    } catch (err) {
-      setError(err.message || "Não consegui enviar a lista.");
-    } finally {
-      setSyncing("");
-    }
-  }
-
-  async function downloadSyncList() {
-    try {
-      setError("");
-      setSyncing("download");
-
-      const result = await downloadListFromGist(syncConfig);
-      const cleaned = cleanLegacyDates(result.list);
-      const syncedCustomLists = mergeCustomLists(customLists, result.customLists);
-      setList(cleaned);
-      setCustomLists(syncedCustomLists);
-      lastSyncedSnapshotRef.current = getSyncSnapshot(cleaned, syncedCustomLists);
-      autoSyncReadyRef.current = true;
-      setLastSyncAt(result.syncedAt);
-      setSuccess("Lista baixada neste dispositivo.");
-    } catch (err) {
-      setError(err.message || "Não consegui baixar a lista.");
-    } finally {
-      setSyncing("");
-    }
-  }
-
-  async function mergeSyncList() {
-    try {
-      setError("");
-      setSyncing("merge");
-
-      const result = await downloadListFromGist(syncConfig);
-      const merged = cleanLegacyDates(mergeLists(list, result.list));
-      const mergedCustomLists = mergeCustomLists(customLists, result.customLists);
-      setList(merged);
-      setCustomLists(mergedCustomLists);
-
-      const uploadResult = await uploadListToGist({
-        token: syncConfig.token,
-        gistId: syncConfig.gistId,
-        list: merged,
-        customLists: mergedCustomLists,
-      });
-
-      setLastSyncAt(uploadResult.syncedAt);
-      lastSyncedSnapshotRef.current = getSyncSnapshot(merged, mergedCustomLists);
-      autoSyncReadyRef.current = true;
-      setSuccess("Listas mescladas e sincronizadas.");
-    } catch (err) {
-      setError(err.message || "Não consegui mesclar as listas.");
-    } finally {
-      setSyncing("");
-    }
-  }
-
   async function addToList(item) {
-    if (!token) {
-      setError("Falta o token do TMDB.");
-      return;
-    }
-
     const exists = list.some((x) => x.uid === `${item.type}-${item.tmdbId}`);
     if (exists) {
       setError("Esse título já está na tua lista.");
@@ -1053,8 +1053,8 @@ export default function ShowTrackApp() {
 
       const payload =
         item.type === "movie"
-          ? await buildMovieItem(item, token)
-          : await buildTvItem(item, token);
+          ? await buildMovieItem(item)
+          : await buildTvItem(item);
 
       setList((prev) => [payload, ...prev]);
       setSuccess(`${payload.title} adicionado à lista.`);
@@ -1659,8 +1659,8 @@ export default function ShowTrackApp() {
       <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
         <div className="text-lg font-semibold text-white">Sua biblioteca ainda esta vazia</div>
         <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
-          Salve o token do TMDB em Mais e comece buscando uma serie ou filme. A partir dai, esta
-          tela vira seu painel rapido para decidir o que assistir.
+          Entre na conta em Mais e comece buscando uma serie ou filme. A partir dai, esta tela vira
+          seu painel rapido para decidir o que assistir.
         </p>
         <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
           <button
@@ -1669,7 +1669,7 @@ export default function ShowTrackApp() {
             }}
             className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
           >
-            Configurar token
+            Entrar na conta
           </button>
           <button
             onClick={() => {
@@ -1840,7 +1840,9 @@ export default function ShowTrackApp() {
   }
 
   function renderMorePage() {
-    const hasSyncReady = !!syncConfig.token && (!!syncConfig.gistId || syncConfig.autoSync);
+    const userEmail = session?.user?.email || "";
+    const accountReady = !!session?.user;
+    const cloudReady = accountReady && !cloudBusy;
 
     return (
       <div className="space-y-4">
@@ -1848,9 +1850,14 @@ export default function ShowTrackApp() {
           <div className="mb-3 text-sm font-medium text-white">Comece por aqui</div>
           <div className="grid gap-3 md:grid-cols-2">
             {renderSetupStep(
-              "Token do TMDB",
-              token ? "Busca de titulos liberada." : "Salve o Bearer token para buscar series e filmes.",
-              !!token
+              "Busca no TMDB",
+              "O token fica no servidor. Voce nao precisa preencher nada aqui.",
+              true
+            )}
+            {renderSetupStep(
+              "Conta",
+              accountReady ? `Conectado como ${userEmail}.` : "Entre para sincronizar automaticamente.",
+              accountReady
             )}
             {renderSetupStep(
               "Biblioteca",
@@ -1860,18 +1867,11 @@ export default function ShowTrackApp() {
               stats.totalTitles > 0
             )}
             {renderSetupStep(
-              "Sincronizacao",
-              hasSyncReady
-                ? "Backup na nuvem pronto para uso."
-                : "Configure GitHub Gist para usar em mais de um dispositivo.",
-              hasSyncReady
-            )}
-            {renderSetupStep(
-              "Backup local",
-              stats.totalTitles > 0
-                ? "Exporte um JSON antes de mudancas grandes."
-                : "O backup fica util depois que houver dados.",
-              stats.totalTitles > 0
+              "Sync automatico",
+              accountReady
+                ? autoSyncStatus || "Pronto para salvar alteracoes na nuvem."
+                : "Sem GitHub token, Gist ou importacao manual.",
+              cloudReady
             )}
           </div>
         </div>
@@ -1879,109 +1879,89 @@ export default function ShowTrackApp() {
         <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
             <Settings2 className="h-4 w-4" />
-            Configurações
+            Conta
           </div>
 
-          <div className="flex flex-col gap-3 md:flex-row">
-            <input
-              value={draftToken}
-              onChange={(e) => setDraftToken(e.target.value)}
-              placeholder="Bearer token do TMDB"
-              className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
-            />
-            <button
-              onClick={persistToken}
-              className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-medium text-white hover:bg-emerald-400"
-            >
-              Salvar token
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
-            <RefreshCw className="h-4 w-4" />
-            Sincronização
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-[1fr_0.8fr_auto]">
-            <input
-              type="password"
-              value={draftSyncConfig.token}
-              onChange={(e) =>
-                setDraftSyncConfig((prev) => ({ ...prev, token: e.target.value }))
-              }
-              placeholder="Token do GitHub com acesso a Gists"
-              className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
-            />
-
-            <input
-              value={draftSyncConfig.gistId}
-              onChange={(e) =>
-                setDraftSyncConfig((prev) => ({ ...prev, gistId: e.target.value }))
-              }
-              placeholder="ID do Gist"
-              className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
-            />
-
-            <button
-              onClick={persistSyncConfig}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-white"
-            >
-              <Save className="h-4 w-4" />
-              Salvar
-            </button>
-          </div>
-
-          <label className="mt-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={draftSyncConfig.autoSync !== false}
-              onChange={(e) =>
-                setDraftSyncConfig((prev) => ({ ...prev, autoSync: e.target.checked }))
-              }
-              className="h-4 w-4 accent-fuchsia-500"
-            />
-            Sincronizar automaticamente ao abrir e depois de alterações
-          </label>
-
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <button
-              onClick={uploadSyncList}
-              disabled={!!syncing || !syncConfig.token}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <CloudUpload className="h-4 w-4" />
-              {syncing === "upload" ? "Enviando..." : "Enviar lista"}
-            </button>
-
-            <button
-              onClick={downloadSyncList}
-              disabled={!!syncing || !syncConfig.token || !syncConfig.gistId}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <CloudDownload className="h-4 w-4" />
-              {syncing === "download" ? "Baixando..." : "Baixar lista"}
-            </button>
-
-            <button
-              onClick={mergeSyncList}
-              disabled={!!syncing || !syncConfig.token || !syncConfig.gistId}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw className="h-4 w-4" />
-              {syncing === "merge" ? "Mesclando..." : "Mesclar"}
-            </button>
-          </div>
-
-          <div className="mt-3 space-y-1 text-xs leading-relaxed text-zinc-500">
-            <div>
-              Primeiro envio cria um Gist privado e salva o ID aqui. No outro dispositivo, use o
-              mesmo token e ID para baixar ou mesclar.
+          {!isSupabaseConfigured ? (
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
+              Supabase ainda nao esta configurado neste deploy. Preencha
+              <span className="font-mono"> VITE_SUPABASE_URL </span>e
+              <span className="font-mono"> VITE_SUPABASE_ANON_KEY </span>na Vercel.
             </div>
-            {autoSyncStatus ? <div>{autoSyncStatus}</div> : null}
-            {lastSyncAt ? <div>Última sincronização: {formatDateTime(lastSyncAt)}</div> : null}
-          </div>
+          ) : accountReady ? (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                <div className="text-sm font-medium text-white">{userEmail}</div>
+                <div className="mt-1 text-xs text-zinc-400">
+                  {cloudBusy
+                    ? "Sincronizando..."
+                    : autoSyncStatus || "Alteracoes serao salvas automaticamente."}
+                </div>
+                {lastSyncAt ? (
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Ultima sincronizacao: {formatDateTime(lastSyncAt)}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <button
+                  onClick={forceCloudSync}
+                  disabled={!!cloudBusy}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {cloudBusy ? "Sincronizando..." : "Sincronizar agora"}
+                </button>
+
+                <button
+                  onClick={signOut}
+                  disabled={authBusy}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Sair da conta
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={submitAuth} className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="email@exemplo.com"
+                  className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
+                />
+
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="Senha"
+                  className="min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="submit"
+                  disabled={authBusy || !authReady}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {authBusy ? "Entrando..." : authMode === "signup" ? "Criar conta" : "Entrar"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAuthMode((mode) => (mode === "signup" ? "signin" : "signup"))}
+                  className="inline-flex flex-1 items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+                >
+                  {authMode === "signup" ? "Ja tenho conta" : "Criar nova conta"}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
@@ -1999,8 +1979,8 @@ export default function ShowTrackApp() {
           </div>
 
           <p className="mb-3 text-xs leading-relaxed text-zinc-500">
-            Exporte um arquivo JSON para guardar uma copia manual da biblioteca. Ao importar, o app
-            mescla o backup com os dados atuais.
+            O backup manual ficou como seguranca extra. No uso normal, a conta sincroniza tudo
+            automaticamente.
           </p>
 
           <div className="grid gap-2 md:grid-cols-2">
@@ -2022,7 +2002,6 @@ export default function ShowTrackApp() {
             </button>
           </div>
         </div>
-
       </div>
     );
   }

@@ -12,7 +12,7 @@ createRoot(document.getElementById("root")).render(
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("/show-track/sw.js")
+      .register("/sw.js")
       .then((registration) => registration.update())
       .catch((err) => console.log("Erro SW:", err));
   });

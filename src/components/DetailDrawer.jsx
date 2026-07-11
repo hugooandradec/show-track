@@ -12,7 +12,7 @@ import {
 import { formatDate } from "../utils/format";
 import { getPrimaryTitle } from "../utils/titles";
 import { getPoster } from "../utils/posters";
-import { LS_TOKEN, tmdbFetch } from "../utils/tmdb";
+import { tmdbFetch } from "../utils/tmdb";
 import { getSeriesStatusLabel, getSeriesStatusTone } from "../utils/seriesStatus";
 
 function cx(...classes) {
@@ -57,21 +57,15 @@ export default function DetailDrawer({
         return;
       }
 
-      const token = localStorage.getItem(LS_TOKEN) || "";
-      if (!token) {
-        setTvDetails(null);
-        return;
-      }
-
       try {
         setLoadingTvDetails(true);
 
-        const details = await tmdbFetch(`/tv/${item.tmdbId}`, token, { language: "pt-BR" });
+        const details = await tmdbFetch(`/tv/${item.tmdbId}`, { language: "pt-BR" });
         const seasons = (details.seasons || []).filter((season) => season.season_number > 0);
 
         const seasonPayloads = await Promise.all(
           seasons.map((season) =>
-            tmdbFetch(`/tv/${item.tmdbId}/season/${season.season_number}`, token, {
+            tmdbFetch(`/tv/${item.tmdbId}/season/${season.season_number}`, {
               language: "en-US",
             })
           )

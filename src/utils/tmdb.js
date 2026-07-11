@@ -1,10 +1,12 @@
 export const APP_NAME = "Show Track";
 export const TMDB_BASE = "https://api.themoviedb.org/3";
-export const LS_TOKEN = "show_track_tmdb_token";
 export const LS_LIST = "show_track_watchlist_v1";
+const TMDB_PROXY_URL = import.meta.env.VITE_TMDB_PROXY_URL || "/api/tmdb";
 
-export async function tmdbFetch(path, token, params = {}) {
-  const url = new URL(TMDB_BASE + path);
+export async function tmdbFetch(path, params = {}) {
+  const url = new URL(TMDB_PROXY_URL, window.location.origin);
+
+  url.searchParams.set("path", path);
 
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
@@ -14,7 +16,6 @@ export async function tmdbFetch(path, token, params = {}) {
 
   const res = await fetch(url.toString(), {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   });
@@ -45,8 +46,8 @@ export function normalizeSearchResult(item) {
   };
 }
 
-export async function buildMovieItem(base, token) {
-  const details = await tmdbFetch(`/movie/${base.tmdbId}`, token, { language: "pt-BR" });
+export async function buildMovieItem(base) {
+  const details = await tmdbFetch(`/movie/${base.tmdbId}`, { language: "pt-BR" });
 
   return {
     uid: `movie-${details.id}`,
@@ -69,13 +70,13 @@ export async function buildMovieItem(base, token) {
   };
 }
 
-export async function buildTvItem(base, token) {
-  const details = await tmdbFetch(`/tv/${base.tmdbId}`, token, { language: "pt-BR" });
+export async function buildTvItem(base) {
+  const details = await tmdbFetch(`/tv/${base.tmdbId}`, { language: "pt-BR" });
   const seasons = (details.seasons || []).filter((s) => s.season_number > 0);
 
   const seasonPayloads = await Promise.all(
     seasons.map((s) =>
-      tmdbFetch(`/tv/${base.tmdbId}/season/${s.season_number}`, token, { language: "en-US" })
+      tmdbFetch(`/tv/${base.tmdbId}/season/${s.season_number}`, { language: "en-US" })
     )
   );
 
@@ -122,13 +123,13 @@ export async function buildTvItem(base, token) {
   };
 }
 
-export async function refreshTvItem(item, token) {
-  const details = await tmdbFetch(`/tv/${item.tmdbId}`, token, { language: "pt-BR" });
+export async function refreshTvItem(item) {
+  const details = await tmdbFetch(`/tv/${item.tmdbId}`, { language: "pt-BR" });
   const seasons = (details.seasons || []).filter((season) => season.season_number > 0);
 
   const seasonPayloads = await Promise.all(
     seasons.map((season) =>
-      tmdbFetch(`/tv/${item.tmdbId}/season/${season.season_number}`, token, {
+      tmdbFetch(`/tv/${item.tmdbId}/season/${season.season_number}`, {
         language: "en-US",
       })
     )

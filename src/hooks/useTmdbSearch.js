@@ -3,7 +3,7 @@ import { tmdbFetch, normalizeSearchResult } from "../utils/tmdb";
 
 const SEARCH_DEBOUNCE_MS = 450;
 
-export function useTmdbSearch({ token, query, scope = "all", enabled = false }) {
+export function useTmdbSearch({ query, scope = "all", enabled = false }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -22,13 +22,6 @@ export function useTmdbSearch({ token, query, scope = "all", enabled = false }) 
 
     const trimmed = (query || "").trim();
 
-    if (!token) {
-      setResults([]);
-      setSearching(false);
-      setSearchError("Falta o token do TMDB. Salva ele em Mais > Configurações para buscar títulos.");
-      return;
-    }
-
     if (trimmed.length < 2) {
       clearResults();
       return;
@@ -39,7 +32,7 @@ export function useTmdbSearch({ token, query, scope = "all", enabled = false }) 
         setSearching(true);
         setSearchError("");
 
-        const data = await tmdbFetch("/search/multi", token, {
+        const data = await tmdbFetch("/search/multi", {
           language: "pt-BR",
           query: trimmed,
           include_adult: "false",
@@ -64,7 +57,7 @@ export function useTmdbSearch({ token, query, scope = "all", enabled = false }) 
     }, SEARCH_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [token, query, scope, enabled, clearResults]);
+  }, [query, scope, enabled, clearResults]);
 
   return {
     results,
