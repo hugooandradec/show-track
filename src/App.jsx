@@ -279,11 +279,12 @@ export default function ShowTrackApp() {
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [cloudBusy, setCloudBusy] = useState("");
+  const [tmdbStatus, setTmdbStatus] = useState("checking");
   const [lastSyncAt, setLastSyncAt] = useState("");
   const [autoSyncStatus, setAutoSyncStatus] = useState(
     isSupabaseConfigured
       ? ""
-      : "Supabase ainda nao configurado. Preencha as variaveis de ambiente."
+      : "Modo local ativo. Entre com Supabase apenas se quiser sync entre dispositivos."
   );
   const [customLists, setCustomLists] = useState(() => getSavedCustomLists());
   const [selectedCustomListId, setSelectedCustomListId] = useState("");
@@ -359,6 +360,31 @@ export default function ShowTrackApp() {
     scope: searchScope,
     enabled: isSearchTabOpen,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkTmdbProxy() {
+      try {
+        const url = new URL("/api/tmdb", window.location.origin);
+        url.searchParams.set("path", "/configuration");
+
+        const response = await fetch(url.toString(), {
+          headers: { Accept: "application/json" },
+        });
+
+        if (!cancelled) setTmdbStatus(response.ok ? "ready" : "missing");
+      } catch {
+        if (!cancelled) setTmdbStatus("missing");
+      }
+    }
+
+    checkTmdbProxy();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     listRef.current = list;
@@ -1871,6 +1897,7 @@ export default function ShowTrackApp() {
     const userEmail = session?.user?.email || "";
     const accountReady = !!session?.user;
     const cloudReady = accountReady && !cloudBusy;
+    const tmdbReady = tmdbStatus === "ready";
 
     return (
       <div className="space-y-4">
@@ -1878,14 +1905,20 @@ export default function ShowTrackApp() {
           <div className="mb-3 text-sm font-medium text-white">Comece por aqui</div>
           <div className="grid gap-3 md:grid-cols-2">
             {renderSetupStep(
-              "Busca no TMDB",
-              "O token fica no servidor. Voce nao precisa preencher nada aqui.",
-              true
+              "TMDB",
+              tmdbReady
+                ? "Atualizacao de temporadas e busca estao ativas."
+                : tmdbStatus === "checking"
+                ? "Verificando proxy do TMDB..."
+                : "Configure TMDB_BEARER_TOKEN na Vercel para atualizar temporadas.",
+              tmdbReady
             )}
             {renderSetupStep(
-              "Conta",
-              accountReady ? `Conectado como ${userEmail}.` : "Entre para sincronizar automaticamente.",
+              "Modo local",
               accountReady
+                ? `Sync na nuvem conectado como ${userEmail}.`
+                : "Sem Supabase: os dados ficam neste navegador e podem ser exportados.",
+              true
             )}
             {renderSetupStep(
               "Biblioteca",
@@ -1898,7 +1931,7 @@ export default function ShowTrackApp() {
               "Sync automatico",
               accountReady
                 ? autoSyncStatus || "Pronto para salvar alteracoes na nuvem."
-                : "Sem GitHub token, Gist ou importacao manual.",
+                : "Opcional. Use Supabase depois, se quiser sync entre dispositivos.",
               cloudReady
             )}
           </div>
@@ -1911,10 +1944,10 @@ export default function ShowTrackApp() {
           </div>
 
           {!isSupabaseConfigured ? (
-            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
-              Supabase ainda nao esta configurado neste deploy. Preencha
-              <span className="font-mono"> VITE_SUPABASE_URL </span>e
-              <span className="font-mono"> VITE_SUPABASE_ANON_KEY </span>na Vercel.
+            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm leading-relaxed text-cyan-100">
+              Modo local ativo. Voce pode importar o SeriesGuide, marcar episodios e exportar
+              backup sem Supabase. Configure Supabase apenas se quiser sincronizar entre
+              dispositivos.
             </div>
           ) : accountReady ? (
             <div className="space-y-3">

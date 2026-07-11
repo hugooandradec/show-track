@@ -8,8 +8,8 @@ Show Track e um app pessoal/PWA para acompanhar series e filmes. Ele permite bus
 
 O app migrou do modelo antigo `localStorage + GitHub Gist + token TMDB digitado na UI` para um modelo mais confortavel:
 
-- Supabase Auth para login.
-- Supabase Database para sync automatico por usuario.
+- Modo local sem cadastro usando `localStorage`.
+- Supabase Auth/Database opcional para sync automatico por usuario.
 - Funcao serverless `/api/tmdb` para consultar TMDB com token privado no servidor.
 - `localStorage` como cache local/offline.
 - Backup JSON manual apenas como seguranca extra.
@@ -23,6 +23,7 @@ O app migrou do modelo antigo `localStorage + GitHub Gist + token TMDB digitado 
 - Supabase JS para Auth e Database.
 - Vercel Functions para proxy TMDB.
 - Deploy alvo: Vercel.
+- Atualizacao de temporadas depende apenas de `TMDB_BEARER_TOKEN` na Vercel, nao de Supabase.
 
 Scripts:
 
@@ -37,14 +38,15 @@ Scripts:
 Ver `.env.example`:
 
 ```text
+TMDB_BEARER_TOKEN=
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
-TMDB_BEARER_TOKEN=
 ```
 
 `TMDB_BEARER_TOKEN` deve ficar no ambiente serverless da Vercel, nao no frontend.
+As variaveis Supabase sao opcionais para sync entre dispositivos.
 
-## Supabase
+## Supabase opcional
 
 Migration inicial:
 

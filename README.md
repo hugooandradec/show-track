@@ -1,11 +1,11 @@
 # Show Track
 
-Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos no TMDB por uma funcao serverless, salva a biblioteca por usuario no Supabase e mantem um cache local para uso mais rapido no navegador.
+Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos no TMDB por uma funcao serverless, salva a biblioteca no navegador e pode sincronizar por usuario no Supabase se isso for configurado depois.
 
 ## Funcionalidades
 
-- Login por email/senha com Supabase Auth.
-- Sync automatico por usuario no Supabase.
+- Modo local sem cadastro: dados ficam no navegador.
+- Login/sync por Supabase opcional.
 - Busca de series e filmes no TMDB sem pedir token no app.
 - Tela Hoje com series para continuar, filmes pendentes e lancamentos proximos.
 - Biblioteca separada por series e filmes.
@@ -20,10 +20,9 @@ Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos n
 ## Requisitos
 
 - Node.js compativel com Vite 8.
-- Projeto Supabase com Auth habilitado.
-- Tabela `show_track_user_data`, criada pela migration em `supabase/migrations`.
 - Token Bearer do TMDB configurado como segredo no deploy.
 - Deploy em ambiente com funcao serverless, como Vercel.
+- Opcional: Supabase Auth/Database para sync entre dispositivos.
 
 ## Variaveis de ambiente
 
@@ -36,8 +35,9 @@ TMDB_BEARER_TOKEN=SEU_BEARER_TOKEN_PRIVADO_DO_TMDB
 ```
 
 `TMDB_BEARER_TOKEN` fica apenas no servidor. O frontend chama `/api/tmdb`.
+As variaveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` sao opcionais se voce quiser usar apenas o modo local.
 
-## Supabase
+## Supabase opcional
 
 Execute o SQL em:
 

@@ -36,6 +36,7 @@ export default function DetailDrawer({
   const [openSeasons, setOpenSeasons] = useState({});
   const [tvDetails, setTvDetails] = useState(null);
   const [loadingTvDetails, setLoadingTvDetails] = useState(false);
+  const [tvDetailsError, setTvDetailsError] = useState("");
 
   const toggleSeasonOpen = (seasonNumber) => {
     setOpenSeasons((prev) => ({
@@ -54,11 +55,13 @@ export default function DetailDrawer({
     async function loadTvDetails() {
       if (!open || !item || item.type !== "tv") {
         setTvDetails(null);
+        setTvDetailsError("");
         return;
       }
 
       try {
         setLoadingTvDetails(true);
+        setTvDetailsError("");
 
         const details = await tmdbFetch(`/tv/${item.tmdbId}`, { language: "pt-BR" });
         const seasons = (details.seasons || []).filter((season) => season.season_number > 0);
@@ -124,9 +127,12 @@ export default function DetailDrawer({
           setTvDetails(refreshedDetails);
           onRefreshItem?.(item.uid, refreshedDetails);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
           setTvDetails(null);
+          setTvDetailsError(
+            err.message || "Nao consegui atualizar temporadas pelo TMDB agora."
+          );
         }
       } finally {
         if (!cancelled) {
@@ -328,6 +334,13 @@ export default function DetailDrawer({
               {loadingTvDetails ? (
                 <div className="rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
                   Carregando temporadas...
+                </div>
+              ) : null}
+
+              {tvDetailsError ? (
+                <div className="rounded-3xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100">
+                  Nao consegui atualizar esta serie pelo TMDB. Para puxar novas temporadas,
+                  configure <span className="font-mono">TMDB_BEARER_TOKEN</span> na Vercel.
                 </div>
               ) : null}
 
