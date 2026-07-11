@@ -880,7 +880,7 @@ export default function ShowTrackApp() {
 
   const pageTitle = useMemo(() => {
     if (activeSection === "today") return "Hoje";
-    if (activeSection === "lists") return "Listas";
+    if (activeSection === "lists") return "Universos";
     if (activeSection === "stats") return "Estatísticas";
     if (activeSection === "more") return "Mais";
 
@@ -903,7 +903,7 @@ export default function ShowTrackApp() {
     }
 
     if (activeSection === "lists") {
-      return "No futuro aqui vão entrar listas personalizadas e coleções.";
+      return "Misture filmes e series na ordem de sagas como Marvel, Star Wars ou DC.";
     }
 
     if (activeSection === "stats") {
@@ -1395,6 +1395,46 @@ export default function ShowTrackApp() {
     setMovieToWatchSortMode(value);
   }
 
+  function isLibraryItemComplete(item) {
+    return item?.type === "movie" ? isMovieFullyWatched(item) : isSeriesFullyWatched(item);
+  }
+
+  function getCustomListItems(customList) {
+    if (!customList) return [];
+
+    return (customList.itemUids || [])
+      .map((uid) => list.find((item) => item.uid === uid))
+      .filter(Boolean);
+  }
+
+  function getCustomListProgress(customList) {
+    const items = getCustomListItems(customList);
+    const completed = items.filter(isLibraryItemComplete).length;
+
+    return {
+      total: items.length,
+      completed,
+      pending: items.length - completed,
+      percent: items.length > 0 ? Math.round((completed / items.length) * 100) : 0,
+    };
+  }
+
+  function sortUniverseEntries(customList, entries) {
+    const sortMode = customList?.sortMode || "manual";
+    if (sortMode === "manual") return entries;
+    return sortCustomEntries(entries, sortMode);
+  }
+
+  function getCustomListEntries(customList, { includeCompleted = false } = {}) {
+    const items = getCustomListItems(customList);
+    const entries = includeCompleted ? items : items.filter((item) => !isLibraryItemComplete(item));
+    return sortUniverseEntries(customList, entries);
+  }
+
+  function getCustomListNextEntry(customList) {
+    return getCustomListEntries(customList, { includeCompleted: false })[0] || null;
+  }
+
   function createCustomList() {
     const name = newCustomListName.trim();
     if (!name) return;
@@ -1404,7 +1444,8 @@ export default function ShowTrackApp() {
       id: `custom-${Date.now()}`,
       name,
       itemUids: [],
-      sortMode: "oldest",
+      sortMode: "manual",
+      viewMode: "pending",
       createdAt: now,
       updatedAt: now,
     };
@@ -1440,6 +1481,7 @@ export default function ShowTrackApp() {
   function toggleCustomListItem(customListId, itemUid) {
     updateCustomList(customListId, (customList) => {
       const current = new Set(customList.itemUids || []);
+      const ordered = customList.itemUids || [];
 
       if (current.has(itemUid)) {
         current.delete(itemUid);
@@ -1449,23 +1491,31 @@ export default function ShowTrackApp() {
 
       return {
         ...customList,
-        itemUids: [...current],
+        itemUids: current.has(itemUid)
+          ? [...ordered.filter((uid) => uid !== itemUid), itemUid]
+          : ordered.filter((uid) => uid !== itemUid),
       };
     });
   }
 
-  function getCustomListEntries(customList) {
-    if (!customList) return [];
+  function moveCustomListItem(customListId, itemUid, direction) {
+    updateCustomList(customListId, (customList) => {
+      const itemUids = [...(customList.itemUids || [])];
+      const index = itemUids.indexOf(itemUid);
+      const nextIndex = index + direction;
 
-    const selectedItems = (customList.itemUids || [])
-      .map((uid) => list.find((item) => item.uid === uid))
-      .filter(Boolean);
+      if (index < 0 || nextIndex < 0 || nextIndex >= itemUids.length) {
+        return customList;
+      }
 
-    const entries = selectedItems.filter((item) =>
-      item.type === "movie" ? !isMovieFullyWatched(item) : !isSeriesFullyWatched(item)
-    );
+      [itemUids[index], itemUids[nextIndex]] = [itemUids[nextIndex], itemUids[index]];
 
-    return sortCustomEntries(entries, customList.sortMode || "oldest");
+      return {
+        ...customList,
+        itemUids,
+        sortMode: "manual",
+      };
+    });
   }
 
   function renderHeaderActions() {
@@ -1491,10 +1541,35 @@ export default function ShowTrackApp() {
     );
   }
 
+  function renderUniverseItem(item) {
+    return item.type === "movie" ? (
+      <MovieRow
+        key={item.uid}
+        item={item}
+        onToggleMovie={toggleMovieWatched}
+        onOpenDetails={setDrawerUid}
+      />
+    ) : (
+      <SeriesRow
+        key={item.uid}
+        item={item}
+        onToggleEpisode={toggleEpisode}
+        onOpenDetails={setDrawerUid}
+      />
+    );
+  }
+
   function renderListsPage() {
-    const selectedCustomList = customLists.find((customList) => customList.id === selectedCustomListId) || null;
-    const customEntries = getCustomListEntries(selectedCustomList);
+    const selectedCustomList =
+      customLists.find((customList) => customList.id === selectedCustomListId) || null;
     const selectedUids = new Set(selectedCustomList?.itemUids || []);
+    const viewMode = selectedCustomList?.viewMode || "pending";
+    const customEntries = getCustomListEntries(selectedCustomList, {
+      includeCompleted: viewMode === "all",
+    });
+    const selectedItems = getCustomListItems(selectedCustomList);
+    const selectedProgress = getCustomListProgress(selectedCustomList);
+    const nextEntry = getCustomListNextEntry(selectedCustomList);
     const customSearch = customListSearchQuery.trim();
     const availableItems = [...list]
       .filter((item) =>
@@ -1506,142 +1581,206 @@ export default function ShowTrackApp() {
         if (aSelected !== bSelected) return aSelected ? -1 : 1;
         return compareTitles(a, b);
       })
-      .slice(0, customSearch ? 30 : 12);
+      .slice(0, customSearch ? 40 : 16);
 
     if (selectedCustomList) {
       return (
         <div className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-black/20 p-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <button
-                onClick={() => {
-                  setSelectedCustomListId("");
-                  setEditingCustomListItems(false);
-                }}
-                className="mb-2 text-sm text-zinc-400 transition hover:text-white"
-              >
-                Voltar para listas
-              </button>
-              <div className="text-2xl font-bold text-white">{selectedCustomList.name}</div>
-              <div className="text-sm text-zinc-500">
-                {(selectedCustomList.itemUids || []).length} títulos, {customEntries.length} pendentes
-              </div>
-            </div>
+          <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+            <button
+              onClick={() => {
+                setSelectedCustomListId("");
+                setEditingCustomListItems(false);
+              }}
+              className="mb-2 text-sm text-zinc-400 transition hover:text-white"
+            >
+              Voltar para universos
+            </button>
 
-            <div className="flex flex-wrap gap-2">
-              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
-                <SlidersHorizontal className="h-4 w-4" />
-                <select
-                  value={selectedCustomList.sortMode || "oldest"}
-                  onChange={(e) =>
-                    updateCustomList(selectedCustomList.id, { sortMode: e.target.value })
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="text-2xl font-bold text-white">{selectedCustomList.name}</div>
+                <div className="mt-1 text-sm text-zinc-500">
+                  {selectedProgress.completed}/{selectedProgress.total} titulos vistos, {selectedProgress.pending} pendentes
+                </div>
+
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-emerald-400"
+                    style={{ width: `${selectedProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-zinc-300">
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <select
+                    value={selectedCustomList.sortMode || "manual"}
+                    onChange={(e) =>
+                      updateCustomList(selectedCustomList.id, { sortMode: e.target.value })
+                    }
+                    className="bg-transparent outline-none"
+                  >
+                    <option className="bg-zinc-900" value="manual">
+                      Ordem manual
+                    </option>
+                    <option className="bg-zinc-900" value="oldest">
+                      Mais antigo
+                    </option>
+                    <option className="bg-zinc-900" value="newest">
+                      Mais novo
+                    </option>
+                    <option className="bg-zinc-900" value="title">
+                      A-Z
+                    </option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() =>
+                    updateCustomList(selectedCustomList.id, {
+                      viewMode: viewMode === "pending" ? "all" : "pending",
+                    })
                   }
-                  className="bg-transparent outline-none"
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
                 >
-                  <option className="bg-zinc-900" value="oldest">
-                    Mais antigo
-                  </option>
-                  <option className="bg-zinc-900" value="newest">
-                    Mais novo
-                  </option>
-                  <option className="bg-zinc-900" value="title">
-                    A-Z
-                  </option>
-                </select>
+                  {viewMode === "pending" ? "Mostrar tudo" : "So pendentes"}
+                </button>
+
+                <button
+                  onClick={() => setEditingCustomListItems((prev) => !prev)}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+                >
+                  {editingCustomListItems ? "Ocultar titulos" : "Editar titulos"}
+                </button>
+
+                <button
+                  onClick={() => removeCustomList(selectedCustomList.id)}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Remover
+                </button>
               </div>
-
-              <button
-                onClick={() => setEditingCustomListItems((prev) => !prev)}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
-              >
-                {editingCustomListItems ? "Ocultar títulos" : "Editar títulos"}
-              </button>
-
-              <button
-                onClick={() => removeCustomList(selectedCustomList.id)}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200 transition hover:bg-red-500/15"
-              >
-                <Trash2 className="h-4 w-4" />
-                Remover
-              </button>
             </div>
           </div>
+
+          {nextEntry ? (
+            <div className="rounded-3xl border border-cyan-400/20 bg-cyan-500/10 p-4">
+              <div className="mb-3 text-sm font-medium text-cyan-100">Proximo deste universo</div>
+              {renderUniverseItem(nextEntry)}
+            </div>
+          ) : null}
 
           <div className="space-y-3">
             {customEntries.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-                Nada pendente nessa lista.
+                {viewMode === "pending"
+                  ? "Nada pendente nesse universo."
+                  : "Nenhum titulo nesse universo ainda."}
               </div>
             ) : (
-              customEntries.map((item) =>
-                item.type === "movie" ? (
-                  <MovieRow
-                    key={item.uid}
-                    item={item}
-                    onToggleMovie={toggleMovieWatched}
-                    onOpenDetails={setDrawerUid}
-                  />
-                ) : (
-                  <SeriesRow
-                    key={item.uid}
-                    item={item}
-                    onToggleEpisode={toggleEpisode}
-                    onOpenDetails={setDrawerUid}
-                  />
-                )
-              )
+              customEntries.map((item) => renderUniverseItem(item))
             )}
           </div>
 
           {editingCustomListItems ? (
-            <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
-              <div className="mb-3 text-sm font-medium text-white">Buscar títulos adicionados</div>
-              <div className="relative mb-3">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" />
-                <input
-                  value={customListSearchQuery}
-                  onChange={(e) => setCustomListSearchQuery(e.target.value)}
-                  placeholder="Buscar na tua biblioteca..."
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-12 pr-4 text-white outline-none placeholder:text-zinc-500 focus:border-fuchsia-400/40"
-                />
-              </div>
-
-              <div className="space-y-2">
-                {availableItems.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-                    Nada encontrado na tua biblioteca.
+            <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+              <div>
+                <div className="mb-3 text-sm font-medium text-white">Ordem do universo</div>
+                {selectedItems.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-400">
+                    Adicione titulos para montar a ordem.
                   </div>
                 ) : (
-                  availableItems.map((item) => {
-                    const checked = selectedUids.has(item.uid);
-
-                    return (
+                  <div className="space-y-2">
+                    {selectedItems.map((item, index) => (
                       <div
                         key={item.uid}
                         className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-zinc-300"
                       >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                          {index + 1}
+                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-medium text-white">{getPrimaryTitle(item)}</div>
                           <div className="mt-1 text-xs text-zinc-500">
-                            {item.type === "movie" ? "Filme" : "Série"}
+                            {item.type === "movie" ? "Filme" : "Serie"}
+                            {isLibraryItemComplete(item) ? " visto" : " pendente"}
                           </div>
                         </div>
-
-                        <button
-                          onClick={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
-                          className={[
-                            "rounded-2xl px-4 py-2 text-sm font-medium transition",
-                            checked
-                              ? "border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/15"
-                              : "bg-fuchsia-500 text-white hover:bg-fuchsia-400",
-                          ].join(" ")}
-                        >
-                          {checked ? "Remover" : "Adicionar"}
-                        </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => moveCustomListItem(selectedCustomList.id, item.uid, -1)}
+                            disabled={index === 0}
+                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Subir
+                          </button>
+                          <button
+                            onClick={() => moveCustomListItem(selectedCustomList.id, item.uid, 1)}
+                            disabled={index === selectedItems.length - 1}
+                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Descer
+                          </button>
+                        </div>
                       </div>
-                    );
-                  })
+                    ))}
+                  </div>
                 )}
+              </div>
+
+              <div>
+                <div className="mb-3 text-sm font-medium text-white">Buscar titulos adicionados</div>
+                <div className="relative mb-3">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    value={customListSearchQuery}
+                    onChange={(e) => setCustomListSearchQuery(e.target.value)}
+                    placeholder="Buscar na tua biblioteca..."
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 py-3 pl-12 pr-4 text-white outline-none placeholder:text-zinc-500 focus:border-fuchsia-400/40"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  {availableItems.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
+                      Nada encontrado na tua biblioteca.
+                    </div>
+                  ) : (
+                    availableItems.map((item) => {
+                      const checked = selectedUids.has(item.uid);
+
+                      return (
+                        <div
+                          key={item.uid}
+                          className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-zinc-300"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-white">{getPrimaryTitle(item)}</div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {item.type === "movie" ? "Filme" : "Serie"}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => toggleCustomListItem(selectedCustomList.id, item.uid)}
+                            className={[
+                              "rounded-2xl px-4 py-2 text-sm font-medium transition",
+                              checked
+                                ? "border border-red-500/20 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                                : "bg-fuchsia-500 text-white hover:bg-fuchsia-400",
+                            ].join(" ")}
+                          >
+                            {checked ? "Remover" : "Adicionar"}
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
           ) : null}
@@ -1659,7 +1798,7 @@ export default function ShowTrackApp() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") createCustomList();
               }}
-              placeholder="Nome da lista, tipo Marvel"
+              placeholder="Nome do universo, tipo Marvel"
               className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none placeholder:text-zinc-500"
             />
             <button
@@ -1667,18 +1806,22 @@ export default function ShowTrackApp() {
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400"
             >
               <ListPlus className="h-4 w-4" />
-              Criar lista
+              Criar universo
             </button>
           </div>
         </div>
 
         {customLists.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center text-sm text-zinc-400">
-            Cria uma lista para juntar filmes e séries do mesmo universo, saga ou humor do dia.
+            Crie um universo para juntar filmes e series da Marvel, Star Wars, DC ou qualquer saga.
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {customLists.map((customList) => (
+            {customLists.map((customList) => {
+              const progress = getCustomListProgress(customList);
+              const next = getCustomListNextEntry(customList);
+
+              return (
                 <button
                   key={customList.id}
                   onClick={() => {
@@ -1689,13 +1832,20 @@ export default function ShowTrackApp() {
                 >
                   <div className="text-lg font-semibold text-white">{customList.name}</div>
                   <div className="mt-2 text-sm text-zinc-500">
-                    {(customList.itemUids || []).length} títulos
+                    {progress.completed}/{progress.total} titulos vistos
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-emerald-400"
+                      style={{ width: `${progress.percent}%` }}
+                    />
                   </div>
                   <div className="mt-4 text-xs text-zinc-400">
-                    {getCustomListEntries(customList).length} pendentes
+                    {next ? `Proximo: ${getPrimaryTitle(next)}` : "Tudo visto"}
                   </div>
                 </button>
-              ))}
+              );
+            })}
           </div>
         )}
       </div>

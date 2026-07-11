@@ -15,7 +15,7 @@ const ITEMS = [
   { key: "today", label: "Hoje", icon: Home },
   { key: "series", label: "Séries", icon: Tv },
   { key: "movies", label: "Filmes", icon: Film },
-  { key: "lists", label: "Listas", icon: List },
+  { key: "lists", label: "Universos", icon: List },
   { key: "stats", label: "Estatísticas", icon: BarChart3 },
   { key: "more", label: "Mais", icon: MoreHorizontal },
 ];

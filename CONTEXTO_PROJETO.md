@@ -125,7 +125,7 @@ Lista customizada:
 - `Hoje`: painel inicial com series para continuar, filmes pendentes, proximos episodios e recentes.
 - `Series`: adicionadas, historico, em breve, lancados e busca.
 - `Filmes`: adicionados, historico e busca.
-- `Listas`: listas customizadas.
+- `Universos`: listas customizadas com filmes/series misturados, ordem manual, progresso e proximo item.
 - `Estatisticas`: resumo simples.
 - `Mais`: conta, status de sync e backup local.
 - `Mais`: permite forcar atualizacao de todas as series pelo TMDB.

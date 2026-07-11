@@ -13,6 +13,7 @@ Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos n
 - Progresso de series por episodio e temporada.
 - Historico de filmes e episodios assistidos.
 - Abas para episodios em breve e lancados recentemente.
+- Universos com filmes e series misturados, ordem manual, progresso e proximo item.
 - Listas customizadas para sagas, universos ou qualquer agrupamento pessoal.
 - Backup local em JSON como seguranca extra.
 - Importacao de export JSON do SeriesGuide.
