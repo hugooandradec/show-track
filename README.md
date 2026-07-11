@@ -7,6 +7,7 @@ Show Track e um app pessoal para acompanhar series e filmes. Ele busca titulos n
 - Modo local sem cadastro: dados ficam no navegador.
 - Login/sync por Supabase opcional.
 - Busca de series e filmes no TMDB sem pedir token no app.
+- Atualizacao automatica das series ao abrir, puxando novas temporadas pelo TMDB.
 - Tela Hoje com series para continuar, filmes pendentes e lancamentos proximos.
 - Biblioteca separada por series e filmes.
 - Progresso de series por episodio e temporada.

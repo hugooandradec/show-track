@@ -11,6 +11,7 @@ O app migrou do modelo antigo `localStorage + GitHub Gist + token TMDB digitado 
 - Modo local sem cadastro usando `localStorage`.
 - Supabase Auth/Database opcional para sync automatico por usuario.
 - Funcao serverless `/api/tmdb` para consultar TMDB com token privado no servidor.
+- Atualizacao automatica das series ao abrir quando o TMDB estiver configurado.
 - `localStorage` como cache local/offline.
 - Backup JSON manual apenas como seguranca extra.
 - Importador de export JSON do SeriesGuide para migrar historico.
@@ -127,6 +128,7 @@ Lista customizada:
 - `Listas`: listas customizadas.
 - `Estatisticas`: resumo simples.
 - `Mais`: conta, status de sync e backup local.
+- `Mais`: permite forcar atualizacao de todas as series pelo TMDB.
 - `Mais`: tambem possui importacao de backup do SeriesGuide.
 
 ## Regras importantes

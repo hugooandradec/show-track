@@ -280,6 +280,7 @@ export default function ShowTrackApp() {
   const [authBusy, setAuthBusy] = useState(false);
   const [cloudBusy, setCloudBusy] = useState("");
   const [tmdbStatus, setTmdbStatus] = useState("checking");
+  const [refreshingSeries, setRefreshingSeries] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState("");
   const [autoSyncStatus, setAutoSyncStatus] = useState(
     isSupabaseConfigured
@@ -337,7 +338,7 @@ export default function ShowTrackApp() {
   const lastSyncedSnapshotRef = useRef("");
   const listRef = useRef(list);
   const customListsRef = useRef(customLists);
-  const refreshedSeriesRef = useRef(new Set());
+  const autoRefreshDoneRef = useRef(false);
   const backupFileInputRef = useRef(null);
   const seriesGuideFileInputRef = useRef(null);
 
@@ -405,58 +406,67 @@ export default function ShowTrackApp() {
     setEditingCustomListItems(false);
   }, [customLists, selectedCustomListId]);
 
-  useEffect(() => {
-    const candidates = list
-      .filter((item) => item.type === "tv")
-      .filter((item) => !refreshedSeriesRef.current.has(item.uid));
+  const refreshSeriesLibrary = useCallback(async ({ silent = false } = {}) => {
+    const candidates = listRef.current.filter((item) => item.type === "tv");
+    if (candidates.length === 0) return { updated: 0, failed: 0 };
 
-    if (candidates.length === 0) return undefined;
+    setRefreshingSeries(true);
+    if (!silent) setAutoSyncStatus(`Atualizando ${candidates.length} series...`);
 
-    let cancelled = false;
+    const refreshedByUid = new Map();
+    let failed = 0;
 
-    async function refreshSeriesLibrary() {
-      setAutoSyncStatus(`Atualizando ${candidates.length} series...`);
-      const refreshedByUid = new Map();
+    for (const item of candidates) {
+      try {
+        const refreshed = await refreshTvItem(item);
 
-      for (const item of candidates) {
-        if (cancelled) return;
-        refreshedSeriesRef.current.add(item.uid);
-
-        try {
-          const refreshed = await refreshTvItem(item);
-          if (cancelled) return;
-
-          if (getSeriesRefreshSnapshot(item) === getSeriesRefreshSnapshot(refreshed)) {
-            continue;
-          }
-
-          refreshedByUid.set(item.uid, cleanLegacyDates([refreshed])[0]);
-        } catch {
-          // Keep the refresh quiet; manual details still show a title-specific error if needed.
+        if (getSeriesRefreshSnapshot(item) === getSeriesRefreshSnapshot(refreshed)) {
+          continue;
         }
-      }
 
-      if (!cancelled && refreshedByUid.size > 0) {
-        setList((prev) =>
-          prev.map((current) => {
-            const refreshed = refreshedByUid.get(current.uid);
-            if (!refreshed) return current;
-            return cleanLegacyDates(mergeLists([current], [refreshed]))[0] || current;
-          })
-        );
-      }
-
-      if (!cancelled) {
-        setAutoSyncStatus("Series atualizadas.");
+        refreshedByUid.set(item.uid, cleanLegacyDates([refreshed])[0]);
+      } catch {
+        failed += 1;
       }
     }
 
-    refreshSeriesLibrary();
+    if (refreshedByUid.size > 0) {
+      setList((prev) =>
+        prev.map((current) => {
+          const refreshed = refreshedByUid.get(current.uid);
+          if (!refreshed) return current;
+          return cleanLegacyDates(mergeLists([current], [refreshed]))[0] || current;
+        })
+      );
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [list]);
+    setRefreshingSeries(false);
+
+    if (!silent) {
+      const message =
+        failed > 0
+          ? `${refreshedByUid.size} series atualizadas; ${failed} falharam.`
+          : refreshedByUid.size > 0
+          ? `${refreshedByUid.size} series atualizadas.`
+          : "Series ja estavam atualizadas.";
+
+      setAutoSyncStatus(message);
+      setSuccess(message);
+    }
+
+    return { updated: refreshedByUid.size, failed };
+  }, []);
+
+  useEffect(() => {
+    if (tmdbStatus !== "ready" || autoRefreshDoneRef.current) return;
+    if (!listRef.current.some((item) => item.type === "tv")) return;
+
+    autoRefreshDoneRef.current = true;
+    refreshSeriesLibrary({ silent: true }).catch(() => {
+      setRefreshingSeries(false);
+      setAutoSyncStatus("Nao consegui atualizar series automaticamente.");
+    });
+  }, [tmdbStatus, refreshSeriesLibrary]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) {
@@ -1940,7 +1950,29 @@ export default function ShowTrackApp() {
         <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
             <Settings2 className="h-4 w-4" />
-            Conta
+            Atualizacoes
+          </div>
+
+          <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+            <div className="text-sm font-medium text-white">Temporadas e episodios</div>
+            <div className="mt-1 text-xs leading-relaxed text-zinc-400">
+              {tmdbReady
+                ? "O app atualiza as series automaticamente ao abrir. Use o botao para forcar uma nova varredura."
+                : "Configure TMDB_BEARER_TOKEN na Vercel para buscar temporadas novas pelo TMDB."}
+            </div>
+            <button
+              onClick={() => refreshSeriesLibrary()}
+              disabled={!tmdbReady || refreshingSeries || !stats.series.length}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {refreshingSeries ? "Atualizando..." : "Atualizar series agora"}
+            </button>
+          </div>
+
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+            <Settings2 className="h-4 w-4" />
+            Conta opcional
           </div>
 
           {!isSupabaseConfigured ? (
