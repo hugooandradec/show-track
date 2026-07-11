@@ -1,4 +1,5 @@
 import {
+  Home,
   Tv,
   Film,
   List,
@@ -11,6 +12,7 @@ function cx(...classes) {
 }
 
 const ITEMS = [
+  { key: "today", label: "Hoje", icon: Home },
   { key: "series", label: "Séries", icon: Tv },
   { key: "movies", label: "Filmes", icon: Film },
   { key: "lists", label: "Listas", icon: List },

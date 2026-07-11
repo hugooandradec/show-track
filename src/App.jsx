@@ -18,6 +18,8 @@ import SeriesSection from "./components/SeriesSection";
 import MoviesSection from "./components/MoviesSection";
 import SeriesRow from "./components/SeriesRow";
 import MovieRow from "./components/MovieRow";
+import TimelineRow from "./components/TimelineRow";
+import MiniStat from "./components/MiniStat";
 
 import { LS_TOKEN, LS_LIST, buildMovieItem, buildTvItem, refreshTvItem } from "./utils/tmdb";
 import {
@@ -294,7 +296,7 @@ export default function ShowTrackApp() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [activeSection, setActiveSection] = useState(
-    () => getSavedUiPreferences().activeSection || "series"
+    () => getSavedUiPreferences().activeSection || "today"
   );
   const [seriesTab, setSeriesTab] = useState(() => getSavedUiPreferences().seriesTab || "added");
   const [moviesTab, setMoviesTab] = useState(() => getSavedUiPreferences().moviesTab || "added");
@@ -333,6 +335,7 @@ export default function ShowTrackApp() {
   const listRef = useRef(list);
   const customListsRef = useRef(customLists);
   const refreshedSeriesRef = useRef(new Set());
+  const backupFileInputRef = useRef(null);
 
   const currentSeriesSortMode = seriesToWatchSortMode;
 
@@ -772,6 +775,29 @@ export default function ShowTrackApp() {
     [filteredMovieHistoryEntries, movieHistoryLimit]
   );
 
+  const todayWatch = useMemo(() => {
+    const pendingSeries = sortSeriesItems(
+      list.filter((item) => item.type === "tv" && !isSeriesFullyWatched(item)),
+      "to-watch",
+      "oldest"
+    ).slice(0, 4);
+
+    const pendingMovies = sortMovieItems(
+      list.filter(
+        (item) =>
+          item.type === "movie" && !isMovieFullyWatched(item) && isReleasedDate(item.release_date)
+      ),
+      "oldest"
+    ).slice(0, 4);
+
+    return {
+      upcoming: upcomingEntries.slice(0, 3),
+      recent: recentEntries.filter((entry) => !entry.watched).slice(0, 3),
+      series: pendingSeries,
+      movies: pendingMovies,
+    };
+  }, [list, upcomingEntries, recentEntries]);
+
   const drawerItem = useMemo(
     () => list.find((item) => item.uid === drawerUid) || null,
     [drawerUid, list]
@@ -806,6 +832,7 @@ export default function ShowTrackApp() {
   }, [isDrawerOpen, isWatchModalOpen]);
 
   const pageTitle = useMemo(() => {
+    if (activeSection === "today") return "Hoje";
     if (activeSection === "lists") return "Listas";
     if (activeSection === "stats") return "Estatísticas";
     if (activeSection === "more") return "Mais";
@@ -824,6 +851,10 @@ export default function ShowTrackApp() {
   }, [activeSection, seriesTab, moviesTab]);
 
   const pageDescription = useMemo(() => {
+    if (activeSection === "today") {
+      return "Um resumo rapido do que esta pronto para assistir e do que esta chegando.";
+    }
+
     if (activeSection === "lists") {
       return "No futuro aqui vão entrar listas personalizadas e coleções.";
     }
@@ -874,6 +905,59 @@ export default function ShowTrackApp() {
     setSyncConfig(saved);
     setDraftSyncConfig(saved);
     setSuccess("Configuração de sincronização salva.");
+  }
+
+  function exportLocalBackup() {
+    const payload = {
+      app: "show-track",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      list: cleanLegacyDates(list),
+      customLists,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `show-track-backup-${getTodayDateString()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setSuccess("Backup local exportado.");
+  }
+
+  async function importLocalBackup(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setError("");
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const incomingList = Array.isArray(payload) ? payload : payload?.list;
+      const incomingCustomLists = Array.isArray(payload?.customLists) ? payload.customLists : [];
+
+      if (!Array.isArray(incomingList)) {
+        throw new Error("O arquivo nao tem uma biblioteca valida.");
+      }
+
+      const merged = cleanLegacyDates(mergeLists(list, incomingList));
+      const mergedCustomLists = mergeCustomLists(customLists, incomingCustomLists);
+
+      setList(merged);
+      setCustomLists(mergedCustomLists);
+      lastSyncedSnapshotRef.current = getSyncSnapshot(merged, mergedCustomLists);
+      setSuccess("Backup importado e mesclado com a biblioteca atual.");
+    } catch (err) {
+      setError(err.message || "Nao consegui importar esse backup.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   async function uploadSyncList() {
@@ -1321,11 +1405,20 @@ export default function ShowTrackApp() {
   }
 
   function renderHeaderActions() {
-    if (!["series", "movies"].includes(activeSection)) return null;
+    if (!["today", "series", "movies"].includes(activeSection)) return null;
 
     return (
       <button
-        onClick={openSearchFromHeader}
+        onClick={() => {
+          if (activeSection === "today") {
+            setActiveSection("series");
+            setSearchScope("series");
+            setSeriesTab("search");
+            return;
+          }
+
+          openSearchFromHeader();
+        }}
         className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-200 transition hover:bg-white/10"
         title="Buscar"
       >
@@ -1545,6 +1638,157 @@ export default function ShowTrackApp() {
     );
   }
 
+  function renderSectionHeader(title, actionLabel, onAction) {
+    return (
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        {actionLabel && onAction ? (
+          <button
+            onClick={onAction}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderEmptyToday() {
+    return (
+      <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
+        <div className="text-lg font-semibold text-white">Sua biblioteca ainda esta vazia</div>
+        <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">
+          Salve o token do TMDB em Mais e comece buscando uma serie ou filme. A partir dai, esta
+          tela vira seu painel rapido para decidir o que assistir.
+        </p>
+        <div className="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
+          <button
+            onClick={() => {
+              setActiveSection("more");
+            }}
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+          >
+            Configurar token
+          </button>
+          <button
+            onClick={() => {
+              setActiveSection("series");
+              setSearchScope("series");
+              setSeriesTab("search");
+            }}
+            className="rounded-2xl bg-fuchsia-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-fuchsia-400"
+          >
+            Buscar titulos
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderTodayPage() {
+    if (stats.totalTitles === 0) {
+      return renderEmptyToday();
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MiniStat label="Titulos" value={stats.totalTitles} />
+          <MiniStat label="Series pendentes" value={todayWatch.series.length} />
+          <MiniStat label="Filmes pendentes" value={todayWatch.movies.length} />
+          <MiniStat label="Chegando" value={todayWatch.upcoming.length} />
+        </div>
+
+        <section>
+          {renderSectionHeader("Series para continuar", "Ver series", () =>
+            setActiveSection("series")
+          )}
+          <div className="space-y-3">
+            {todayWatch.series.length === 0 ? (
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-400">
+                Nenhuma serie pendente agora.
+              </div>
+            ) : (
+              todayWatch.series.map((item) => (
+                <SeriesRow
+                  key={item.uid}
+                  item={item}
+                  onToggleEpisode={toggleEpisode}
+                  onOpenDetails={setDrawerUid}
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+        <section>
+          {renderSectionHeader("Filmes prontos para ver", "Ver filmes", () =>
+            setActiveSection("movies")
+          )}
+          <div className="space-y-3">
+            {todayWatch.movies.length === 0 ? (
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-400">
+                Nenhum filme lancado pendente.
+              </div>
+            ) : (
+              todayWatch.movies.map((item) => (
+                <MovieRow
+                  key={item.uid}
+                  item={item}
+                  onToggleMovie={toggleMovieWatched}
+                  onOpenDetails={setDrawerUid}
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+        <div className="grid gap-6 xl:grid-cols-2">
+          <section>
+            {renderSectionHeader("Em breve", "Abrir aba", () => {
+              setActiveSection("series");
+              setSeriesTab("upcoming");
+            })}
+            <div className="space-y-3">
+              {todayWatch.upcoming.length === 0 ? (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-400">
+                  Nada previsto para os proximos dias.
+                </div>
+              ) : (
+                todayWatch.upcoming.map((entry) => (
+                  <TimelineRow key={entry.id} entry={entry} showToggle={false} />
+                ))
+              )}
+            </div>
+          </section>
+
+          <section>
+            {renderSectionHeader("Lancados recentemente", "Abrir aba", () => {
+              setActiveSection("series");
+              setSeriesTab("recent");
+            })}
+            <div className="space-y-3">
+              {todayWatch.recent.length === 0 ? (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5 text-sm text-zinc-400">
+                  Nenhum episodio novo pendente nos ultimos dias.
+                </div>
+              ) : (
+                todayWatch.recent.map((entry) => (
+                  <TimelineRow
+                    key={entry.id}
+                    entry={entry}
+                    onToggle={() => toggleEpisode(entry.parentUid, entry.episodeId)}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   function renderStatsPage() {
     return (
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1578,9 +1822,60 @@ export default function ShowTrackApp() {
     );
   }
 
+  function renderSetupStep(label, description, done) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div
+          className={[
+            "mt-0.5 h-3 w-3 shrink-0 rounded-full",
+            done ? "bg-emerald-400" : "bg-zinc-600",
+          ].join(" ")}
+        />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-white">{label}</div>
+          <div className="mt-1 text-xs leading-relaxed text-zinc-400">{description}</div>
+        </div>
+      </div>
+    );
+  }
+
   function renderMorePage() {
+    const hasSyncReady = !!syncConfig.token && (!!syncConfig.gistId || syncConfig.autoSync);
+
     return (
       <div className="space-y-4">
+        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+          <div className="mb-3 text-sm font-medium text-white">Comece por aqui</div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {renderSetupStep(
+              "Token do TMDB",
+              token ? "Busca de titulos liberada." : "Salve o Bearer token para buscar series e filmes.",
+              !!token
+            )}
+            {renderSetupStep(
+              "Biblioteca",
+              stats.totalTitles > 0
+                ? `${stats.totalTitles} titulos adicionados.`
+                : "Adicione sua primeira serie ou filme pela busca.",
+              stats.totalTitles > 0
+            )}
+            {renderSetupStep(
+              "Sincronizacao",
+              hasSyncReady
+                ? "Backup na nuvem pronto para uso."
+                : "Configure GitHub Gist para usar em mais de um dispositivo.",
+              hasSyncReady
+            )}
+            {renderSetupStep(
+              "Backup local",
+              stats.totalTitles > 0
+                ? "Exporte um JSON antes de mudancas grandes."
+                : "O backup fica util depois que houver dados.",
+              stats.totalTitles > 0
+            )}
+          </div>
+        </div>
+
         <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
             <Settings2 className="h-4 w-4" />
@@ -1689,6 +1984,45 @@ export default function ShowTrackApp() {
           </div>
         </div>
 
+        <div className="rounded-3xl border border-white/10 bg-black/20 p-4">
+          <input
+            ref={backupFileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={importLocalBackup}
+            className="hidden"
+          />
+
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white">
+            <Save className="h-4 w-4" />
+            Backup local
+          </div>
+
+          <p className="mb-3 text-xs leading-relaxed text-zinc-500">
+            Exporte um arquivo JSON para guardar uma copia manual da biblioteca. Ao importar, o app
+            mescla o backup com os dados atuais.
+          </p>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <button
+              onClick={exportLocalBackup}
+              disabled={stats.totalTitles === 0 && customLists.length === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CloudDownload className="h-4 w-4" />
+              Exportar backup
+            </button>
+
+            <button
+              onClick={() => backupFileInputRef.current?.click()}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+            >
+              <CloudUpload className="h-4 w-4" />
+              Importar backup
+            </button>
+          </div>
+        </div>
+
       </div>
     );
   }
@@ -1740,6 +2074,8 @@ export default function ShowTrackApp() {
                 {success}
               </div>
             )}
+
+            {activeSection === "today" && renderTodayPage()}
 
             {activeSection === "series" && (
               <SeriesSection
